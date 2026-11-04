@@ -1,4 +1,4 @@
-# Fuse Dragons 2
+# Fuse Dragons 3
 
 ## Note
 All scripts should be checked in here--no scripts should be attached to parts in Roblox Studio
