@@ -31,6 +31,7 @@ local firstSessionOfferManager = require("./FirstSessionOfferManager")
 local ftueManager = require("./FtueManager")
 local gameDataVerifier = require("./GameDataVerifier")
 local Gem = require("./Gem")
+local hatchOddsManager = require("./HatchOddsManager")
 local Crate = require("./Crate")
 local incomeManager = require("./IncomeManager")
 local indexManager = require("./IndexManager")
@@ -1661,6 +1662,7 @@ function GameController.processPlayerAdd(self: GameController, player: Player): 
 		dailyLogin = dailyLoginManager:getClientData(playerData),
 		spinWheel = spinWheelManager:getClientData(playerData),
 		isLegacyIndexEnabled = indexManager:isLegacyEnabled(),
+		hatchOdds = hatchOddsManager:getClientConfig(),
 		hatching = { holdSec = DragonEgg.getHatchHoldSec(), skipSecPerDiamond = DragonEgg.getSkipSecPerDiamond() },
 		indexV2 = if self:isIndexEnabled() then indexV2Manager:getData(playerData) else nil,
 		ftueProgress = ftueProgress,
@@ -4231,6 +4233,7 @@ function GameController.init(self: GameController): ()
 	mutationStoreManager:init()
 	vanityStoreManager:init()
 	dayNightManager:init()
+	hatchOddsManager:init()
 	dragonFlightManager:init()
 	weatherEventManager:init()
 	dealShopManager:init()
