@@ -13,6 +13,7 @@ local utils = require("@game/ReplicatedStorage/Shared/utils")
 
 local clientAnalyticsManager = require("./ClientAnalyticsManager")
 local clientDragonBodyTrail = require("./ClientDragonBodyTrail")
+local clientDragonKit = require("./ClientDragonKit")
 local clientRideController = require("./ClientRideController")
 local Types = require("./Types")
 
@@ -88,7 +89,8 @@ function ClientShadowManager.setupDragonCaster(self: ClientShadowManager, shadow
 		trail.Enabled = false
 	end
 
-	if not self.partMaps[caster.Name] then
+	-- a model whose parts ClientDragonKit swapped has different joint distances, so it never sets the map for its name
+	if not self.partMaps[caster.Name] and not caster:GetAttribute(Attributes.GENOME_BUILT) then
 		local partMap = self:buildPartMap(caster.PrimaryPart, {})
 
 		-- normalize to a 1x baseline so it works across differently-sized dragons of the same species
@@ -180,7 +182,12 @@ function ClientShadowManager.testCasterIntegrityLoop(self: ClientShadowManager)
 		task.wait(0.05)
 		for itemId, indicatorData in self.indicatorMap do
 			-- a procedural body is placed by code every frame, so its joints cannot stretch
-			if not indicatorData.isProceduralTrail and not self:testCasterIntegrity(indicatorData.caster) then
+			-- a bred dragon's swapped parts sit at other distances than the model's own, so its joints are not tested
+			if
+				not indicatorData.isProceduralTrail
+				and not indicatorData.caster:GetAttribute(Attributes.GENOME_BUILT)
+				and not self:testCasterIntegrity(indicatorData.caster)
+			then
 				print("recreating caster for shadow", itemId, indicatorData.caster)
 				self:tryAutoRecreateCaster(itemId)
 				clientAnalyticsManager:logEvent(clientAnalyticsManager.Events.RecreateShadowCaster,
@@ -243,6 +250,12 @@ function ClientShadowManager.createCaster(self: ClientShadowManager, itemId: num
 	local casterTemplate = indicatorData.casterTemplate :: Model
 
 	local caster: any = casterTemplate:Clone()
+
+	-- a bred dragon's parts are swapped on before setupDragonCaster, so the swapped parts get the same physics setup as the rest
+	local genomeJson = shadow:GetAttribute(Attributes.DRAGON_GENOME)
+	if shadow:HasTag(Tags.SHADOW_DRAGON) and type(genomeJson) == "string" then
+		clientDragonKit:apply(caster, genomeJson)
+	end
 
 	if shadow:HasTag(Tags.SHADOW_DRAGON) then
 		caster:ScaleTo(shadow:GetAttribute(Attributes.DRAGON_SIZE) or 1)

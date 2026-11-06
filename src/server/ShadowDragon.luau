@@ -7,6 +7,7 @@ local ShadowDragon = {}
 ShadowDragon.__index = setmetatable(ShadowDragon, super)
 
 local collectionService = game:GetService("CollectionService")
+local httpService = game:GetService("HttpService")
 
 local DirectFlyItemMover = require("./DirectFlyItemMover")
 local DubinsItemMover = require("./DubinsItemMover")
@@ -1927,6 +1928,7 @@ end
 
 function ShadowDragon.setGenome(self: ShadowDragon, genome: any)
 	self.genome = genome
+	self:getObj():SetAttribute(Attributes.DRAGON_GENOME, httpService:JSONEncode(genome))
 	self:recomputeSellValue()
 end
 

@@ -5,6 +5,7 @@
 
 local Genome = require("@game/ReplicatedStorage/Shared/Genome")
 local GenomeItemName = require("@game/ReplicatedStorage/Shared/GenomeItemName")
+local GenomeLook = require("@game/ReplicatedStorage/Shared/GenomeLook")
 local GenomeRoll = require("@game/ReplicatedStorage/Shared/GenomeRoll")
 local GenomeValue = require("@game/ReplicatedStorage/Shared/GenomeValue")
 local HatchOdds = require("@game/ReplicatedStorage/Shared/HatchOdds")
@@ -257,6 +258,25 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 	local tierThree = makeGenome(odds, "nature", "rare")
 	tierThree.tier = 3
 	checkItemName(tierThree, "Green E Dragon Level 7") -- 21 points is Epic
+
+	-- the look: each slot borrows the model of its piece's element; Legendary borrows the Epic model, the texture follows the piece's own rarity
+	local function checkLook(slot: string, donor: GenomeLook.Donor?, color: string, rarity: string)
+		if not donor or donor.color ~= color or donor.rarity ~= rarity then
+			table.insert(failures, ("look %s: got %s, expected %s %s"):format(slot, if donor then donor.color .. " " .. donor.rarity else "nil", color, rarity))
+		end
+	end
+	local waterRare = GenomeLook.get(odds, makeGenome(odds, "water", "rare"))
+	checkLook("rare wings", waterRare and waterRare.wings, "Blue", "Common")
+	checkLook("rare body texture", waterRare and waterRare.bodyTexture, "Blue", "Rare")
+	local fireLegendary = GenomeLook.get(odds, makeGenome(odds, "fire", "legendary"))
+	checkLook("legendary tail", fireLegendary and fireLegendary.tail, "Red", "Epic")
+	checkLook("legendary body texture", fireLegendary and fireLegendary.bodyTexture, "Red", "Epic")
+	local mixedGenome = makeGenome(odds, "fire", "uncommon")
+	mixedGenome.pieces.wings = find(odds, "wings", "nature", "uncommon")
+	local mixedLook = GenomeLook.get(odds, mixedGenome)
+	checkLook("mixed wings", mixedLook and mixedLook.wings, "Green", "Common")
+	checkLook("mixed tail", mixedLook and mixedLook.tail, "Red", "Common")
+	checkLook("mixed body texture", mixedLook and mixedLook.bodyTexture, "Red", "Uncommon")
 
 	-- a fresh roll has no parents, keeps its mix and tier, and only rolls pieces of the elements it has
 	local fresh = GenomeRoll.rollFresh(odds, { fire = 0.5, water = 0.5, nature = 0 }, 4, "00000000-1111-2222-3333-444444444444", 0, rng)

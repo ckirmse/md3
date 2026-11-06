@@ -48,6 +48,12 @@ module = {
 	DRAGON_NEXT_LEVEL_XP = "DragonNextLevelXp",
 	DRAGON_INCOME_PER_SEC = "DragonIncomePerSec",
 	DRAGON_SELL_VALUE = "DragonSellValue",
+
+	-- a Hatch Dragons genome as JSON, for the client to build the dragon's look from
+	DRAGON_GENOME = "DragonGenome",
+
+	-- set on a caster whose look ClientDragonKit changed, so its joint distances are no longer the model's own
+	GENOME_BUILT = "GenomeBuilt",
 	EGG_SLOT_INDEX = "EggSlotIndex",
 
 	IS_CARRYING = "IsCarrying",

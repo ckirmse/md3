@@ -1080,8 +1080,9 @@ function DevTools._createItem(self: DevTools, player: Player, itemName: any, gen
 	return item
 end
 
--- Hatch Dragons: a dragon from a fresh roll at the given tier; element is "fire", "water", "nature" or "mixed" (half fire, half water)
-function DevTools.grantGenomeDragon(self: DevTools, player: Player, element: any, tier: any)
+-- Hatch Dragons: a dragon from a fresh roll at the given tier; element is "fire", "water", "nature" or "mixed" (half fire, half water).
+-- isPlaced puts it in the world next to the player, where its look is built, instead of in the backpack.
+function DevTools.grantGenomeDragon(self: DevTools, player: Player, element: any, tier: any, isPlaced: any)
 	local odds = hatchOddsManager:getOdds()
 	if not odds then
 		warn("grantGenomeDragon: Control/HatchOdds is invalid")
@@ -1112,7 +1113,10 @@ function DevTools.grantGenomeDragon(self: DevTools, player: Player, element: any
 		return
 	end
 
-	self:_createItem(player, itemName, genome)
+	local item = self:_createItem(player, itemName, genome)
+	if isPlaced == true and item and item:getType() == "shadowDragon" then
+		(item :: Types.ShadowDragon):moveDragonFromBackpackToWorkspace()
+	end
 end
 
 function DevTools.dumpGenomeDragons(self: DevTools, player: Player)

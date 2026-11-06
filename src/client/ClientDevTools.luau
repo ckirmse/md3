@@ -371,6 +371,13 @@ function ClientDevTools.init(self: ClientDevTools, devToolSettings: any)
 				end
 			end
 			Iris.End()
+			Iris.SameLine()
+			for _, element in { "fire", "water", "nature", "mixed" } do
+				if Iris.Button({ "Place " .. element }).clicked() then
+					RemoteEvents.TryDevTool:FireServer("grantGenomeDragon", element, 1, true)
+				end
+			end
+			Iris.End()
 			if Iris.Button({ "Dump Genome Dragons" }).clicked() then
 				RemoteEvents.TryDevTool:FireServer("dumpGenomeDragons")
 			end
