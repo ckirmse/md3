@@ -353,6 +353,7 @@ export type ShadowDragonFields = MItemFields & {
 	sizePercentile: number,
 	dragonLevel: number,
 	dragonXp: number,
+	genome: any?, -- a Genome.Genome for a bred or Market dragon; Types.luau cannot require the shared module
 }
 
 -- inherited and overridden members come from MItem; only members new to ShadowDragon are listed here
@@ -416,6 +417,7 @@ export type ShadowDragon = MItem & {
 	getDragonLevel: (self: ShadowDragon) -> number,
 	getDragonXp: (self: ShadowDragon) -> number,
 	getEatingItemId: (self: ShadowDragon) -> any,
+	getGenome: (self: ShadowDragon) -> any?, -- a Genome.Genome, nil for a dragon from the old systems
 	getFlapDataForCurrentState: (self: ShadowDragon) -> (number, number),
 	getIncome: (self: ShadowDragon) -> number,
 	getSpeed: (self: ShadowDragon) -> number,
@@ -426,6 +428,7 @@ export type ShadowDragon = MItem & {
 	getNextLevelXp: (self: ShadowDragon, level: number) -> number?,
 	getRarityRow: (self: ShadowDragon) -> any, -- a RarityMath.RarityRow; Types.luau cannot require the shared module
 	getSellValue: (self: ShadowDragon) -> number,
+	setGenome: (self: ShadowDragon, genome: any) -> (),
 	getSizePercentile: (self: ShadowDragon) -> number,
 	getSizeScale: (self: ShadowDragon) -> number,
 	isAvailableToEat: (self: ShadowDragon) -> boolean,

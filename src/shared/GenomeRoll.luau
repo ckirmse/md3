@@ -211,4 +211,35 @@ function GenomeRoll.rollGenome(odds: HatchOdds.Odds, params: RollParams, rng: Ra
 	}
 end
 
+-- a dragon with no parents (Market stock, dev grants): the same per-part roll with no parent buff, no weather and no tier jump
+function GenomeRoll.rollFresh(odds: HatchOdds.Odds, shares: Genome.Shares, tier: number, uuid: string, bornAt: number, rng: Random): Genome.Genome?
+	local pieces: { [HatchOdds.Part]: string } = {}
+	for _, part in HatchOdds.PARTS do
+		local id = GenomeRoll.pick(GenomeRoll.getPieceWeights(odds, part, shares, {}), rng)
+		if not id then
+			warn("GenomeRoll: no piece can roll for", part)
+			return nil
+		end
+		pieces[part] = id
+	end
+
+	local mutation = (GenomeRoll.pick(GenomeRoll.getMutationWeights(odds, shares, {}, nil), rng) or "normal") :: HatchOdds.MutationId
+	local size, isGiant = GenomeRoll.rollSize(odds, { 1 }, rng)
+
+	return {
+		uuid = uuid,
+		code = Genome.makeCode(uuid),
+		tier = tier,
+		shares = table.clone(shares),
+		pieces = pieces,
+		size = size,
+		isGiant = isGiant,
+		mutation = mutation,
+		traits = {},
+		parents = {},
+		bornAt = bornAt,
+		oddsVersion = odds.config.version,
+	}
+end
+
 return GenomeRoll

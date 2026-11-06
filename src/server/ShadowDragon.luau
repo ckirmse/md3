@@ -31,6 +31,7 @@ local DragonSellValue = require("@game/ReplicatedStorage/Shared/DragonSellValue"
 local DragonSpeed = require("@game/ReplicatedStorage/Shared/DragonSpeed")
 local Elements = require("@game/ReplicatedStorage/Shared/Elements")
 local enums = require("@game/ReplicatedStorage/Shared/Enums")
+local GenomeValue = require("@game/ReplicatedStorage/Shared/GenomeValue")
 local PivotToIndependentTween = require("@game/ReplicatedStorage/Shared/PivotToIndependentTween")
 local RarityMath = require("@game/ReplicatedStorage/Shared/RarityMath")
 local Tags = require("@game/ReplicatedStorage/Shared/Tags")
@@ -42,6 +43,7 @@ local dragonProgressionData = require("@game/ServerScriptService/GameData/Contro
 local rarityData = require("@game/ServerScriptService/GameData/Control/Rarities")
 
 local analyticsManager = require("./AnalyticsManager")
+local hatchOddsManager = require("./HatchOddsManager")
 
 local DRAGON_IDEAL_MINING_DISTANCE = 20
 -- compensates for the ride seat sitting behind the model's pivot (approximate)
@@ -1510,6 +1512,7 @@ function ShadowDragon.getSaveData(self: ShadowDragon, itemIdMap: any): any
 	retval.sizePercentile = self.sizePercentile
 	retval.dragonLevel = self.dragonLevel
 	retval.dragonXp = self.dragonXp
+	retval.genome = self.genome
 	if self.state == enums.DragonState.OPENING then
 		--print("saving data remapping an item id for dragon target", self.opening.crystalItemId, itemIdMap[self.opening.crystalItemId])
 		retval.opening = {}
@@ -1538,6 +1541,9 @@ function ShadowDragon.loadSaveData(self: ShadowDragon, itemSaveData: any, itemId
 	self.sizePercentile = itemSaveData.sizePercentile or self.sizePercentile
 	self.dragonLevel = itemSaveData.dragonLevel or self.dragonLevel
 	self.dragonXp = itemSaveData.dragonXp or self.dragonXp
+	if type(itemSaveData.genome) == "table" then
+		self:setGenome(itemSaveData.genome)
+	end
 
 	-- saved in this state: itemSaveData.state but we put every dragon in idle to start with; they were saved with idle locations
 
@@ -1896,9 +1902,32 @@ function ShadowDragon.getIncome(self: ShadowDragon): number
 end
 
 function ShadowDragon.recomputeSellValue(self: ShadowDragon)
-	self.sellValue = DragonSellValue.compute(self:getIncome())
+	-- a dragon with a genome sells by the Hatch Dragons value formula; one from the old systems sells for its income
+	local odds = hatchOddsManager:getOdds()
+	if self.genome and odds then
+		self.sellValue = math.floor(GenomeValue.getValue(odds, self.genome))
+	else
+		self.sellValue = DragonSellValue.compute(self:getIncome())
+	end
 
 	self:getObj():SetAttribute(Attributes.DRAGON_SELL_VALUE, self.sellValue)
+end
+
+-- every genome dragon is one of a kind, so it never merges into a backpack stack
+function ShadowDragon.canStackWith(self: ShadowDragon, item: any): boolean
+	if self.genome or item.genome then
+		return false
+	end
+	return super.canStackWith(self, item)
+end
+
+function ShadowDragon.getGenome(self: ShadowDragon): any?
+	return self.genome
+end
+
+function ShadowDragon.setGenome(self: ShadowDragon, genome: any)
+	self.genome = genome
+	self:recomputeSellValue()
 end
 
 function ShadowDragon.getSellValue(self: ShadowDragon): number

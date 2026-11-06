@@ -28,6 +28,7 @@ export type Tier = {
 	layTimeSec: number,
 	growTimeSec: number,
 	baseScale: number,
+	dragonLevel: number, -- the "Dragon Level N" legacy item whose model this tier is built from
 }
 
 export type MutationDef = {
@@ -203,7 +204,7 @@ function HatchOdds.validate(config: any): { string }
 		problem("HatchOdds: tiers must list at least one tier")
 	else
 		for index, tier in tiers do
-			for _, field in { "segments", "marketPrice", "baseValue", "layTimeSec", "growTimeSec", "baseScale" } do
+			for _, field in { "segments", "marketPrice", "baseValue", "layTimeSec", "growTimeSec", "baseScale", "dragonLevel" } do
 				if not isFiniteNonNegative(tier[field]) then
 					problem(("HatchOdds: tiers[%d].%s must be a non-negative number"):format(index, field))
 				end

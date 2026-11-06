@@ -4,6 +4,7 @@
 -- The Studio HatchOdds table is only validated, so tuning it never fails the spec checks. Returns the failures.
 
 local Genome = require("@game/ReplicatedStorage/Shared/Genome")
+local GenomeItemName = require("@game/ReplicatedStorage/Shared/GenomeItemName")
 local GenomeRoll = require("@game/ReplicatedStorage/Shared/GenomeRoll")
 local GenomeValue = require("@game/ReplicatedStorage/Shared/GenomeValue")
 local HatchOdds = require("@game/ReplicatedStorage/Shared/HatchOdds")
@@ -241,6 +242,39 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 	mismatched.tier = 2
 	if GenomeRoll.rollGenome(odds, { parentA = parentA, parentB = mismatched, uuid = "x", bornAt = 0 }, rng) ~= nil then
 		table.insert(failures, "rollGenome accepted parents of different tiers")
+	end
+
+	-- the legacy item a genome is built on: head element picks the color, band the rarity, tier the level
+	local function checkItemName(genome: Genome.Genome, expected: string)
+		local name = GenomeItemName.get(odds, genome)
+		if name ~= expected then
+			table.insert(failures, ("item name: got %s, expected %s"):format(tostring(name), expected))
+		end
+	end
+	checkItemName(makeGenome(odds, "fire", "common"), "Red Dragon Level 5")
+	checkItemName(makeGenome(odds, "water", "uncommon"), "Blue R Dragon Level 5") -- 7 Uncommon pieces score 7, which is Rare
+	checkItemName(makeGenome(odds, "fire", "legendary"), "Red E Dragon Level 5") -- Mythic shares the Epic item
+	local tierThree = makeGenome(odds, "nature", "rare")
+	tierThree.tier = 3
+	checkItemName(tierThree, "Green E Dragon Level 7") -- 21 points is Epic
+
+	-- a fresh roll has no parents, keeps its mix and tier, and only rolls pieces of the elements it has
+	local fresh = GenomeRoll.rollFresh(odds, { fire = 0.5, water = 0.5, nature = 0 }, 4, "00000000-1111-2222-3333-444444444444", 0, rng)
+	if not fresh then
+		table.insert(failures, "rollFresh returned nil")
+	else
+		check("fresh Fire share", fresh.shares.fire, 0.5, 0.0001)
+		check("fresh tier", fresh.tier, 4, 0)
+		check("fresh parents", #fresh.parents, 0, 0)
+		for _, part in HatchOdds.PARTS do
+			local piece = odds.catalog.byId[fresh.pieces[part]]
+			if not piece or piece.element == "nature" then
+				table.insert(failures, "fresh dragon rolled a piece it can't have for " .. part)
+			end
+		end
+		if fresh.size < config.sizeMin or fresh.size > config.sizeMax then
+			table.insert(failures, "fresh size out of range: " .. tostring(fresh.size))
+		end
 	end
 
 	return failures

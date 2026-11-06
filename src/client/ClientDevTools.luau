@@ -363,6 +363,17 @@ function ClientDevTools.init(self: ClientDevTools, devToolSettings: any)
 			if Iris.Button({ "Dump Dragon Income" }).clicked() then
 				RemoteEvents.TryDevTool:FireServer("dumpDragonIncome")
 			end
+			Iris.Text({ "Hatch Dragons (fresh roll, tier 1)" })
+			Iris.SameLine()
+			for _, element in { "fire", "water", "nature", "mixed" } do
+				if Iris.Button({ "Grant " .. element }).clicked() then
+					RemoteEvents.TryDevTool:FireServer("grantGenomeDragon", element, 1)
+				end
+			end
+			Iris.End()
+			if Iris.Button({ "Dump Genome Dragons" }).clicked() then
+				RemoteEvents.TryDevTool:FireServer("dumpGenomeDragons")
+			end
 			if Iris.Button({ "Place All Eggs" }).clicked() then
 				RemoteEvents.TryDevTool:FireServer("placeAllEggs")
 			end

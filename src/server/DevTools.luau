@@ -26,6 +26,7 @@ local rideMixin = require("./RideMixin")
 local scatterZoneManager = require("./ScatterZoneManager")
 local spinWheelManager = require("./SpinWheelManager")
 local dayNightManager = require("./DayNightManager")
+local hatchOddsManager = require("./HatchOddsManager")
 local eggSlotManager = require("./EggSlotManager")
 local starterOfferManager = require("./StarterOfferManager")
 local storageManager = require("./StorageManager")
@@ -34,6 +35,7 @@ local Validate = require("./Validate")
 local weatherEventManager = require("./WeatherEventManager")
 local weatherManager = require("./WeatherManager")
 
+local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 -- the RemoteEvents children only exist in Studio, so they are untyped here
 local RemoteEvents: any = ReplicatedStorage:WaitForChild("RemoteEvents")
@@ -41,6 +43,10 @@ local RemoteEvents: any = ReplicatedStorage:WaitForChild("RemoteEvents")
 local Attributes = require("@game/ReplicatedStorage/Shared/Attributes")
 local Elements = require("@game/ReplicatedStorage/Shared/Elements")
 local enums = require("@game/ReplicatedStorage/Shared/Enums")
+local GenomeItemName = require("@game/ReplicatedStorage/Shared/GenomeItemName")
+local GenomeRoll = require("@game/ReplicatedStorage/Shared/GenomeRoll")
+local GenomeValue = require("@game/ReplicatedStorage/Shared/GenomeValue")
+local HatchOdds = require("@game/ReplicatedStorage/Shared/HatchOdds")
 local PlayerAttributeKeys = require("@game/ReplicatedStorage/Shared/PlayerAttributeKeys")
 local PlayerOptionKeys = require("@game/ReplicatedStorage/Shared/PlayerOptionKeys")
 local PlotHelpers = require("@game/ReplicatedStorage/Shared/PlotHelpers")
@@ -1024,12 +1030,21 @@ function DevTools.addGemPile(self: DevTools, player: Player)
 end
 
 function DevTools.createItem(self: DevTools, player: Player, itemName: any)
+	self:_createItem(player, itemName, nil)
+end
+
+-- the genome goes on before the dragon enters the backpack, where identical dragons would otherwise stack; the _ keeps it off the client
+function DevTools._createItem(self: DevTools, player: Player, itemName: any, genome: any): Types.Item?
 	local playerData = gameController:getPlayerData(player)
 
 	local item = itemManager:createItem(itemName, player.UserId)
 	if not item then
 		warn("unable to create item", itemName)
-		return
+		return nil
+	end
+
+	if genome and item:getType() == "shadowDragon" then
+		(item :: Types.ShadowDragon):setGenome(genome)
 	end
 
 	local itemData = item:getItemData()
@@ -1061,6 +1076,93 @@ function DevTools.createItem(self: DevTools, player: Player, itemName: any)
 			acquisitionSource = "devTool",
 		}
 	)
+
+	return item
+end
+
+-- Hatch Dragons: a dragon from a fresh roll at the given tier; element is "fire", "water", "nature" or "mixed" (half fire, half water)
+function DevTools.grantGenomeDragon(self: DevTools, player: Player, element: any, tier: any)
+	local odds = hatchOddsManager:getOdds()
+	if not odds then
+		warn("grantGenomeDragon: Control/HatchOdds is invalid")
+		return
+	end
+	if type(tier) ~= "number" or tier ~= math.floor(tier) or tier < 1 or tier > #odds.config.tiers then
+		warn("grantGenomeDragon: tier must be a whole number from 1 to", #odds.config.tiers, tier)
+		return
+	end
+
+	local shares = if element == "mixed"
+		then { fire = 0.5, water = 0.5, nature = 0 }
+		elseif element == "fire" then { fire = 1, water = 0, nature = 0 }
+		elseif element == "water" then { fire = 0, water = 1, nature = 0 }
+		elseif element == "nature" then { fire = 0, water = 0, nature = 1 }
+		else nil
+	if not shares then
+		warn("grantGenomeDragon: element must be fire, water, nature or mixed", element)
+		return
+	end
+
+	local genome = GenomeRoll.rollFresh(odds, shares, tier, HttpService:GenerateGUID(false), os.time(), Random.new())
+	if not genome then
+		return
+	end
+	local itemName = GenomeItemName.get(odds, genome)
+	if not itemName then
+		return
+	end
+
+	self:_createItem(player, itemName, genome)
+end
+
+function DevTools.dumpGenomeDragons(self: DevTools, player: Player)
+	local odds = hatchOddsManager:getOdds()
+	if not odds then
+		warn("dumpGenomeDragons: Control/HatchOdds is invalid")
+		return
+	end
+
+	print("Genome dragons for", player.Name)
+
+	local allItems = itemManager:getItemsOnGroundByUserId(player.UserId)
+	for _, item in itemManager:getItemsNotOnGroundByUserId(player.UserId) do
+		table.insert(allItems, item)
+	end
+
+	for _, item in allItems do
+		if item:getType() ~= "shadowDragon" then
+			continue
+		end
+
+		local dragon = item :: Types.ShadowDragon
+		local genome = dragon:getGenome()
+		if not genome then
+			continue
+		end
+
+		local pieceIds = {}
+		for _, part in HatchOdds.PARTS do
+			table.insert(pieceIds, genome.pieces[part])
+		end
+		print(
+			" ",
+			dragon:getItemName(),
+			genome.code,
+			"tier",
+			odds.config.tiers[genome.tier].name,
+			"band",
+			GenomeValue.getBand(odds, genome),
+			"score",
+			GenomeValue.getScore(odds, genome),
+			"size",
+			string.format("%.2f", genome.size),
+			"mutation",
+			genome.mutation,
+			"sell value",
+			dragon:getSellValue()
+		)
+		print("   ", table.concat(pieceIds, ", "))
+	end
 end
 
 function DevTools.createItemCount(self: DevTools, player: Player, itemName: any, count: any)
