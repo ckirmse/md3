@@ -3,7 +3,8 @@
 -- Builds a bred dragon's look onto a freshly cloned caster: the caster is the old model chosen by GenomeItemName, and each slot that
 -- should look different takes the part from the matching old model (GenomeLook) and puts it on the same attachment.
 -- Wings and the tail swap by attachment (the wing flapping reads those attachments, so swapped wings flap like the originals), back spikes
--- by their place on each body segment, eyes recolor, and the body segments take another model's texture (their mesh is shared by every model).
+-- by their place on each body segment, the head takes the donor head's whole set of horns, frills and the like, eyes recolor, and the body
+-- segments take another model's texture (their mesh is shared by every model).
 local ClientDragonKit = {}
 ClientDragonKit.__index = ClientDragonKit
 
@@ -121,6 +122,57 @@ local function swapSpikes(caster: any, donorModel: any)
 	end
 end
 
+-- the head's own parts, which a head attachment set never replaces
+local function isHeadAttachment(part: any): boolean
+	return part:IsA("BasePart") and not part.Name:find("^Eye_") and part.Name ~= "Particle_Emitter" and part.Name ~= "EggCarryPoint"
+end
+
+local function getAttachmentMeshIds(head: any): string
+	local ids: { string } = {}
+	for _, child in head:GetChildren() do
+		if isHeadAttachment(child) then
+			table.insert(ids, child.Name .. ":" .. (if child:IsA("MeshPart") then child.MeshId else child.ClassName))
+		end
+	end
+	table.sort(ids)
+	return table.concat(ids, ",")
+end
+
+-- the whole set of horns, frills, beards and the like is replaced by the donor head's, at the same place relative to the head
+local function swapHeadAttachments(caster: any, donorModel: any)
+	local head = caster:FindFirstChild("Head")
+	local donorHead = donorModel:FindFirstChild("Head")
+	if not (head and donorHead) or getAttachmentMeshIds(head) == getAttachmentMeshIds(donorHead) then
+		return
+	end
+
+	for _, child in head:GetChildren() do
+		if isHeadAttachment(child) then
+			for _, weld in head:GetChildren() do
+				if weld:IsA("WeldConstraint") and (weld.Part0 == child or weld.Part1 == child) then
+					weld:Destroy()
+				end
+			end
+			child:Destroy()
+		end
+	end
+
+	for _, donorChild in donorHead:GetChildren() do
+		if not isHeadAttachment(donorChild) then
+			continue
+		end
+		local new = donorChild:Clone()
+		new.Parent = head
+		new.CFrame = head.CFrame * donorHead.CFrame:ToObjectSpace(donorChild.CFrame)
+		new.Anchored = head.Anchored
+		local weld = Instance.new("WeldConstraint")
+		weld.Name = "Weld_" .. new.Name
+		weld.Part0 = head
+		weld.Part1 = new
+		weld.Parent = head
+	end
+end
+
 local function recolorEyes(caster: any, donorModel: any)
 	local head = caster:FindFirstChild("Head")
 	local donorHead = donorModel:FindFirstChild("Head")
@@ -179,11 +231,15 @@ function ClientDragonKit.apply(self: ClientDragonKit, caster: any, genomeJson: s
 	end
 
 	local isBuilt, errorMessage = pcall(function()
+		local headAttachment = getDonorModel(look.headAttachment, level)
 		local wings = getDonorModel(look.wings, level)
 		local tail = getDonorModel(look.tail, level)
 		local spikes = getDonorModel(look.spikes, level)
 		local eyes = getDonorModel(look.eyes, level)
 		local bodyTexture = getDonorModel(look.bodyTexture, level)
+		if headAttachment then
+			swapHeadAttachments(caster, headAttachment)
+		end
 		if wings then
 			swapWings(caster, wings)
 		end

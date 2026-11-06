@@ -275,6 +275,8 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 	mixedGenome.pieces.wings = find(odds, "wings", "nature", "uncommon")
 	local mixedLook = GenomeLook.get(odds, mixedGenome)
 	checkLook("mixed wings", mixedLook and mixedLook.wings, "Green", "Common")
+	checkLook("mixed head attachment", mixedLook and mixedLook.headAttachment, "Red", "Common")
+	checkLook("legendary head attachment", fireLegendary and fireLegendary.headAttachment, "Red", "Epic")
 	checkLook("mixed tail", mixedLook and mixedLook.tail, "Red", "Common")
 	checkLook("mixed body texture", mixedLook and mixedLook.bodyTexture, "Red", "Uncommon")
 

@@ -15,6 +15,7 @@ export type ModelRarity = "Common" | "Uncommon" | "Rare" | "Epic"
 export type Donor = { color: Color, rarity: ModelRarity }
 
 export type Look = {
+	headAttachment: Donor,
 	wings: Donor,
 	tail: Donor,
 	spikes: Donor,
@@ -51,15 +52,17 @@ end
 
 -- nil (after a warn) when the genome names a piece the config doesn't have
 function GenomeLook.get(odds: HatchOdds.Odds, genome: Genome.Genome): Look?
+	local headAttachment = getDonor(odds, genome, "headAttachment", SHAPE_RARITY)
 	local wings = getDonor(odds, genome, "wings", SHAPE_RARITY)
 	local tail = getDonor(odds, genome, "tailSpike", SHAPE_RARITY)
 	local spikes = getDonor(odds, genome, "backSpikes", SHAPE_RARITY)
 	local eyes = getDonor(odds, genome, "faceType", SHAPE_RARITY)
 	local bodyTexture = getDonor(odds, genome, "meshTexture", TEXTURE_RARITY)
-	if not (wings and tail and spikes and eyes and bodyTexture) then
+	if not (headAttachment and wings and tail and spikes and eyes and bodyTexture) then
 		return nil
 	end
 	return {
+		headAttachment = headAttachment,
 		wings = wings,
 		tail = tail,
 		spikes = spikes,
