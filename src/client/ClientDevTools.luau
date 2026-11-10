@@ -363,38 +363,43 @@ function ClientDevTools.init(self: ClientDevTools, devToolSettings: any)
 			if Iris.Button({ "Dump Dragon Income" }).clicked() then
 				RemoteEvents.TryDevTool:FireServer("dumpDragonIncome")
 			end
-			Iris.Text({ "Hatch Dragons (fresh roll, tier 1)" })
-			Iris.SameLine()
+			if Iris.Button({ "Place All Eggs" }).clicked() then
+				RemoteEvents.TryDevTool:FireServer("placeAllEggs")
+			end
+			if Iris.Button({ "Remove All Eggs" }).clicked() then
+				RemoteEvents.TryDevTool:FireServer("removeAllEggs")
+			end
+
+			Iris.End()
+
+			-- Hatch Dragons: bred dragons and the Nests, one button per line so nothing runs off the panel
+			Iris.CollapsingHeader({ "Hatch Dragons" })
+			Iris.Text({ "Bred dragons (fresh roll, tier 1, into the backpack)" })
 			for _, element in { "fire", "water", "nature", "mixed" } do
 				if Iris.Button({ "Grant " .. element }).clicked() then
 					RemoteEvents.TryDevTool:FireServer("grantGenomeDragon", element, 1)
 				end
 			end
-			Iris.End()
-			Iris.SameLine()
+			Iris.Text({ "Or placed in the world next to you" })
 			for _, element in { "fire", "water", "nature", "mixed" } do
 				if Iris.Button({ "Place " .. element }).clicked() then
 					RemoteEvents.TryDevTool:FireServer("grantGenomeDragon", element, 1, true)
 				end
 			end
-			Iris.End()
 			if Iris.Button({ "Dump Genome Dragons" }).clicked() then
 				RemoteEvents.TryDevTool:FireServer("dumpGenomeDragons")
 			end
-			Iris.Text({ "Hatch Dragons Nests (Nest 1)" })
-			Iris.SameLine()
+			Iris.SeparatorText({ "Nests (these act on Nest 1)" })
 			if Iris.Button({ "Give 20 Lock Tokens" }).clicked() then
 				RemoteEvents.TryDevTool:FireServer("giveLockTokens", 20)
 			end
-			if Iris.Button({ "Pair first two" }).clicked() then
+			if Iris.Button({ "Pair first two bred dragons" }).clicked() then
 				RemoteEvents.TryDevTool:FireServer("nestPair", 1, false)
 			end
-			if Iris.Button({ "Pair + lock wings" }).clicked() then
+			if Iris.Button({ "Pair first two + lock wings" }).clicked() then
 				RemoteEvents.TryDevTool:FireServer("nestPair", 1, true)
 			end
-			Iris.End()
-			Iris.SameLine()
-			if Iris.Button({ "Skip 60 s" }).clicked() then
+			if Iris.Button({ "Skip 60 seconds" }).clicked() then
 				RemoteEvents.TryDevTool:FireServer("nestSkip", 60)
 			end
 			if Iris.Button({ "Sell first egg" }).clicked() then
@@ -403,18 +408,14 @@ function ClientDevTools.init(self: ClientDevTools, devToolSettings: any)
 			if Iris.Button({ "Keep first egg" }).clicked() then
 				RemoteEvents.TryDevTool:FireServer("nestHatch", 1, 1, "keep")
 			end
-			if Iris.Button({ "Clear Nest" }).clicked() then
+			if Iris.Button({ "Clear Nest (parents come back)" }).clicked() then
 				RemoteEvents.TryDevTool:FireServer("nestClear", 1)
 			end
 			if Iris.Button({ "Dump Nests" }).clicked() then
 				RemoteEvents.TryDevTool:FireServer("nestDump")
 			end
-			Iris.End()
-			if Iris.Button({ "Place All Eggs" }).clicked() then
-				RemoteEvents.TryDevTool:FireServer("placeAllEggs")
-			end
-			if Iris.Button({ "Remove All Eggs" }).clicked() then
-				RemoteEvents.TryDevTool:FireServer("removeAllEggs")
+			if Iris.Button({ "Reset Nests + tokens" }).clicked() then
+				RemoteEvents.TryDevTool:FireServer("resetNests")
 			end
 
 			Iris.End()

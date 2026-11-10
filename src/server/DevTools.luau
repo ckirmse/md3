@@ -1135,12 +1135,21 @@ local function getGenomeDragons(player: Player): { Types.ShadowDragon }
 	return dragons
 end
 
+-- empties every Nest (the parents and eggs are not returned) and sets the Lock Tokens to 0
+function DevTools.resetNests(self: DevTools, player: Player)
+	local playerData = gameController:getPlayerData(player)
+	playerData:resetNests()
+	playerAttributesManager:set(player, PlayerAttributeKeys.LOCK_TOKENS, 0)
+	nestManager:pushNests(player)
+end
+
 function DevTools.giveLockTokens(self: DevTools, player: Player, amount: any)
 	if type(amount) ~= "number" or amount ~= math.floor(amount) or amount < 1 or amount > 1000 then
 		warn("giveLockTokens: amount must be a whole number from 1 to 1000", amount)
 		return
 	end
 	CurrencyGranter.grantLockTokens(player, amount, "devTool")
+	nestManager:pushNests(player)
 end
 
 -- Hatch Dragons Nests: puts the first two genome dragons of the same tier into the Nest, optionally locking the first one's wings
@@ -1152,8 +1161,7 @@ function DevTools.nestPair(self: DevTools, player: Player, nestIndex: any, isLoc
 			local genomeB = dragons[indexB]:getGenome() :: any
 			if genomeA.tier == genomeB.tier then
 				local locks = if isLocked == true then { wings = genomeA.pieces.wings } else {}
-				local _, message = nestManager:setNest(player, nestIndex, dragons[indexA]:getItemId(), dragons[indexB]:getItemId(), locks)
-				gameController:sendSystemMessageToPlayer(player, message)
+				nestManager:trySet(player, nestIndex, dragons[indexA]:getItemId(), dragons[indexB]:getItemId(), locks)
 				return
 			end
 		end
@@ -1162,13 +1170,11 @@ function DevTools.nestPair(self: DevTools, player: Player, nestIndex: any, isLoc
 end
 
 function DevTools.nestClear(self: DevTools, player: Player, nestIndex: any)
-	local _, message = nestManager:clearNest(player, nestIndex)
-	gameController:sendSystemMessageToPlayer(player, message)
+	nestManager:tryClear(player, nestIndex)
 end
 
 function DevTools.nestHatch(self: DevTools, player: Player, nestIndex: any, eggIndex: any, decision: any)
-	local _, message = nestManager:hatchEgg(player, nestIndex, eggIndex, decision)
-	gameController:sendSystemMessageToPlayer(player, message)
+	nestManager:tryDecide(player, nestIndex, eggIndex, decision)
 end
 
 function DevTools.nestSkip(self: DevTools, player: Player, seconds: any)
@@ -1402,6 +1408,7 @@ function DevTools.resetFullPlayerState(self: DevTools, player: Player)
 	self:resetIndexData(player)
 	self:resetDailyLogin(player)
 	self:resetSpinWheel(player)
+	self:resetNests(player)
 
 	local playerData = gameController:getPlayerData(player)
 	playerData:resetStats()

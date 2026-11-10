@@ -1206,6 +1206,11 @@ function PlayerData.getNests(self: PlayerData): any
 	return self.nests
 end
 
+-- dev only: forgets every Nest with its parents and eggs
+function PlayerData.resetNests(self: PlayerData)
+	self.nests = {}
+end
+
 function PlayerData.getEggSlots(self: PlayerData): any
 	return self.eggSlots
 end

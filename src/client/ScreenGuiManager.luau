@@ -26,6 +26,7 @@ local clientDragonRosterManager = require("./ClientDragonRosterManager")
 local clientEggWorldCountsManager = require("./ClientEggWorldCountsManager")
 local clientRebirthManager = require("./ClientRebirthManager")
 local clientLuckInfoManager = require("./ClientLuckInfoManager")
+local clientNestManager = require("./ClientNestManager")
 local clientOptionsManager = require("./ClientOptionsManager")
 local clientPlayerAttributesManager = require("./ClientPlayerAttributesManager")
 local clientPlaytimeRewardManager = require("./ClientPlaytimeRewardManager")
@@ -1395,6 +1396,27 @@ function ScreenGuiManager.init(self: ScreenGuiManager)
 		end
 	else
 		warn("ScreenGuiManager: LuckySpinFrame missing from the HUD; no spin wheel button")
+	end
+
+	local nestsFrame: any = ScreenGui:FindFirstChild("NestsFrame")
+	if nestsFrame then
+		nestsFrame.Visible = not clientFtueManager:isFtueActive()
+
+		clientFtueManager:getIsEnabledEvent():Connect(function(isFtueEnabled: boolean)
+			nestsFrame.Visible = not isFtueEnabled
+		end)
+
+		local nestsButton: any = nestsFrame:FindFirstChild("NestsButton")
+		if nestsButton then
+			clientNestManager:setHudButton(nestsButton)
+			nestsButton.Activated:Connect(function()
+				clientNestManager:toggleDialog()
+			end)
+		else
+			warn("ScreenGuiManager: NestsFrame has no NestsButton button")
+		end
+	else
+		warn("ScreenGuiManager: NestsFrame missing from the HUD; no Nests button")
 	end
 
 	local featuredDealFrame: any = ScreenGui:FindFirstChild("FeaturedDealFrame")

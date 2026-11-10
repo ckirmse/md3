@@ -1665,6 +1665,7 @@ function GameController.processPlayerAdd(self: GameController, player: Player): 
 		spinWheel = spinWheelManager:getClientData(playerData),
 		isLegacyIndexEnabled = indexManager:isLegacyEnabled(),
 		hatchOdds = hatchOddsManager:getClientConfig(),
+		nests = nestManager:getClientData(player, playerData),
 		hatching = { holdSec = DragonEgg.getHatchHoldSec(), skipSecPerDiamond = DragonEgg.getSkipSecPerDiamond() },
 		indexV2 = if self:isIndexEnabled() then indexV2Manager:getData(playerData) else nil,
 		ftueProgress = ftueProgress,
@@ -1901,6 +1902,23 @@ end
 
 function GameController.tryBuyDeal(self: GameController, player: Player, dealKey: any, tierIndex: any): ()
 	dealShopManager:tryBuyDeal(player, dealKey, tierIndex)
+end
+
+-- Hatch Dragons Nests: NestManager checks every argument, since they come from the client
+function GameController.tryNestSet(self: GameController, player: Player, nestIndex: any, itemIdA: any, itemIdB: any, locks: any): ()
+	nestManager:trySet(player, nestIndex, itemIdA, itemIdB, locks)
+end
+
+function GameController.tryNestClear(self: GameController, player: Player, nestIndex: any): ()
+	nestManager:tryClear(player, nestIndex)
+end
+
+function GameController.tryNestHatch(self: GameController, player: Player, nestIndex: any, eggId: any): ()
+	nestManager:tryHatch(player, nestIndex, eggId)
+end
+
+function GameController.tryNestDecide(self: GameController, player: Player, nestIndex: any, eggId: any, decision: any): ()
+	nestManager:tryDecide(player, nestIndex, eggId, decision)
 end
 
 function GameController.tryBeginGift(self: GameController, player: Player, productId: any, recipientUserId: any): ()
@@ -3912,6 +3930,20 @@ function GameController.listenToRemoteEvents(self: GameController): ()
 	-- move these into subdir with event handlers eventually; for now, functions here
 
 	self:addRemoteEventHandler("TryDevTool", "tryDevTool")
+
+	-- the Nest remotes are made in Studio; without one the Nests have no player-facing path, so warn instead of failing startup
+	for remoteName, funcName in {
+		TryNestSet = "tryNestSet",
+		TryNestClear = "tryNestClear",
+		TryNestHatch = "tryNestHatch",
+		TryNestDecide = "tryNestDecide",
+	} do
+		if RemoteEvents:FindFirstChild(remoteName) then
+			self:addRemoteEventHandler(remoteName, funcName)
+		else
+			warn("GameController: RemoteEvents." .. remoteName .. " is missing, so that Nest request is off")
+		end
+	end
 	self:addRemoteEventHandler("TryCustomerTool", "tryCustomerTool")
 	self:addRemoteEventHandler("TryBuyItemName", "tryBuyItemName")
 	self:addRemoteEventHandler("TryBuyMaxItemName", "tryBuyMaxItemName")

@@ -4,13 +4,18 @@
 -- The Nests are saved in PlayerData as plain genome records, so a parent leaves the inventory while it sits in a Nest.
 -- Hatching reveals an egg's genome (rolled when it was laid); the player then sells it for Gold, which never creates a dragon,
 -- or keeps it, which creates a ShadowDragon carrying the genome. Eggs laid while offline are caught up when the player joins.
+-- The client talks through TryNestSet, TryNestClear, TryNestHatch and TryNestDecide (created in Studio) and hears NotifyNests (the whole state,
+-- pushed after every change and every laid egg) and NotifyNestReveal. Eggs are named by their genome uuid, so a stale click can't hit another egg.
 -- As of 2026-november-10 not built: weather boosts and traits on waiting eggs, the first-Rare-piece and Gene Book lock unlocks, Incubators,
--- more than 2 Nests, the grow-up wait before kept dragons can breed, and the remotes and UI (the dev tools drive it for now).
+-- more than 2 Nests, and the grow-up wait before kept dragons can breed.
 local NestManager = {}
 NestManager.__index = NestManager
 
 local httpService = game:GetService("HttpService")
 local players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+-- the RemoteEvents children only exist in Studio, so they are untyped here
+local RemoteEvents: any = ReplicatedStorage:WaitForChild("RemoteEvents")
 
 local Types = require("./Types")
 local gameController: Types.GameController -- injected via initClass(deps); typed through Types.luau to avoid the require cycle
@@ -47,6 +52,34 @@ local function getNest(playerData: any, nestIndex: number): NestMath.Nest?
 	return playerData:getNests()[tostring(nestIndex)]
 end
 
+-- the index of the egg a client named: an egg's genome uuid, or a plain index for the dev tools; nil when there is no such egg
+local function findEggIndex(nest: NestMath.Nest, eggRef: any): number?
+	if type(eggRef) == "number" then
+		return if nest.eggs[eggRef] then eggRef else nil
+	end
+	if type(eggRef) == "string" then
+		for index, egg in nest.eggs do
+			if egg.genome.uuid == eggRef then
+				return index
+			end
+		end
+	end
+	return nil
+end
+
+-- the Remote is made in Studio; until it exists nothing is sent
+local function fireRemote(remoteName: string, player: Player, ...: any)
+	local remote = RemoteEvents:FindFirstChild(remoteName)
+	if remote then
+		remote:FireClient(player, ...)
+	end
+end
+
+-- an egg that will hatch a higher tier than its parents glows (the spec's tier jump)
+local function isTierJump(nest: NestMath.Nest, egg: NestMath.Egg): boolean
+	return egg.genome.tier > nest.parentA.tier
+end
+
 -- puts a dragon with this genome in the player's backpack; the genome goes on first, since identical dragons would stack there
 function NestManager.giveGenomeDragon(self: NestManager, player: Player, genome: any): Types.ShadowDragon?
 	local odds = hatchOddsManager:getOdds()
@@ -75,6 +108,50 @@ function NestManager.giveGenomeDragon(self: NestManager, player: Player, genome:
 	dragon:putInBackpack()
 	playerData:notifyItemReceived(dragon)
 	return dragon
+end
+
+-- the whole state the client draws: one entry per Nest slot, the parents' genomes, the locks, the next egg's server time and the waiting eggs
+function NestManager.getClientData(self: NestManager, player: Player, playerData: any): any?
+	local odds = hatchOddsManager:getOdds()
+	if not odds then
+		return nil
+	end
+
+	local nests = {}
+	for nestIndex = 1, NEST_COUNT do
+		local nest = getNest(playerData, nestIndex)
+		if not nest then
+			table.insert(nests, { isEmpty = true })
+			continue
+		end
+		local eggs = {}
+		for _, egg in nest.eggs do
+			table.insert(eggs, { id = egg.genome.uuid, laidAt = egg.laidAt, isTierJump = isTierJump(nest, egg) })
+		end
+		table.insert(nests, {
+			isEmpty = false,
+			parentA = nest.parentA,
+			parentB = nest.parentB,
+			locks = nest.locks,
+			nextLayAt = nest.nextLayAt,
+			layTimeSec = NestMath.getLayTimeSec(odds, nest),
+			eggs = eggs,
+		})
+	end
+
+	return {
+		lockTokens = CurrencyGranter.getLockTokens(player),
+		maxLocks = odds.config.maxLocks,
+		nests = nests,
+	}
+end
+
+function NestManager.pushNests(self: NestManager, player: Player)
+	local playerData = gameController:getPlayerData(player)
+	local data = if playerData then self:getClientData(player, playerData) else nil
+	if data then
+		fireRemote("NotifyNests", player, data)
+	end
 end
 
 -- Moves two of the player's genome dragons into an empty Nest. locks maps a part to a parent's piece id, up to the config's maximum.
@@ -168,37 +245,52 @@ function NestManager.clearNest(self: NestManager, player: Player, nestIndex: any
 	return true, "The dragons are back in your backpack"
 end
 
--- the genome of a waiting egg, for the reveal; nothing changes, since hatching rolls nothing
-function NestManager.revealEgg(self: NestManager, player: Player, nestIndex: any, eggIndex: any): any?
+-- Everything the reveal screen shows about a waiting egg; nothing changes, since hatching rolls nothing.
+function NestManager.getReveal(self: NestManager, player: Player, nestIndex: any, eggRef: any): any?
+	local odds = hatchOddsManager:getOdds()
 	local playerData = gameController:getPlayerData(player)
-	if not playerData or not isNestIndex(nestIndex) or type(eggIndex) ~= "number" then
+	if not odds or not playerData or not isNestIndex(nestIndex) then
 		return nil
 	end
 	local nest = getNest(playerData, nestIndex)
-	local egg = if nest then nest.eggs[eggIndex] else nil
-	return if egg then egg.genome else nil
+	local eggIndex = if nest then findEggIndex(nest, eggRef) else nil
+	if not nest or not eggIndex then
+		return nil
+	end
+
+	local egg = nest.eggs[eggIndex]
+	local genome = egg.genome
+	return {
+		nestIndex = nestIndex,
+		eggId = genome.uuid,
+		genome = genome,
+		band = GenomeValue.getBand(odds, genome),
+		score = GenomeValue.getScore(odds, genome),
+		value = math.floor(GenomeValue.getValue(odds, genome)),
+		isTierJump = isTierJump(nest, egg),
+	}
 end
 
 -- Sells the egg for its value in Gold (no dragon is created) or keeps it as a dragon; both end with the egg gone from the Nest.
-function NestManager.hatchEgg(self: NestManager, player: Player, nestIndex: any, eggIndex: any, decision: any): (boolean, string)
+function NestManager.hatchEgg(self: NestManager, player: Player, nestIndex: any, eggRef: any, decision: any): (boolean, string)
 	local odds = hatchOddsManager:getOdds()
 	local playerData = gameController:getPlayerData(player)
 	if not odds or not playerData then
 		return false, "Nests are not available"
 	end
-	if not isNestIndex(nestIndex) or type(eggIndex) ~= "number" or eggIndex ~= math.floor(eggIndex) then
+	if not isNestIndex(nestIndex) then
 		return false, "That egg does not exist"
 	end
 	if decision ~= "sell" and decision ~= "keep" then
 		return false, "Sell or keep the egg"
 	end
 	local nest = getNest(playerData, nestIndex)
-	local egg = if nest then nest.eggs[eggIndex] else nil
-	if not nest or not egg then
+	local eggIndex = if nest then findEggIndex(nest, eggRef) else nil
+	if not nest or not eggIndex then
 		return false, "That egg does not exist"
 	end
 
-	local genome = egg.genome
+	local genome = nest.eggs[eggIndex].genome
 	if decision == "keep" then
 		-- the egg is removed only once the dragon exists
 		if not self:giveGenomeDragon(player, genome) then
@@ -214,11 +306,41 @@ function NestManager.hatchEgg(self: NestManager, player: Player, nestIndex: any,
 	return true, string.format("Sold the dragon for %d coins", value)
 end
 
--- lays the eggs that are due in every Nest of the player; the Lock Tokens of a locked egg come out of the player's balance
-function NestManager.tickPlayer(self: NestManager, player: Player, playerData: any)
+-- the client's four requests: each checks, answers with a short message and sends the new state
+function NestManager.trySet(self: NestManager, player: Player, nestIndex: any, itemIdA: any, itemIdB: any, locks: any)
+	local _, message = self:setNest(player, nestIndex, itemIdA, itemIdB, locks)
+	gameController:sendSystemMessageToPlayer(player, message)
+	self:pushNests(player)
+end
+
+function NestManager.tryClear(self: NestManager, player: Player, nestIndex: any)
+	local _, message = self:clearNest(player, nestIndex)
+	gameController:sendSystemMessageToPlayer(player, message)
+	self:pushNests(player)
+end
+
+-- asks to see an egg; the reveal goes back through NotifyNestReveal
+function NestManager.tryHatch(self: NestManager, player: Player, nestIndex: any, eggRef: any)
+	local reveal = self:getReveal(player, nestIndex, eggRef)
+	if reveal then
+		fireRemote("NotifyNestReveal", player, reveal)
+	else
+		gameController:sendSystemMessageToPlayer(player, "That egg does not exist")
+		self:pushNests(player)
+	end
+end
+
+function NestManager.tryDecide(self: NestManager, player: Player, nestIndex: any, eggRef: any, decision: any)
+	local _, message = self:hatchEgg(player, nestIndex, eggRef, decision)
+	gameController:sendSystemMessageToPlayer(player, message)
+	self:pushNests(player)
+end
+
+-- Lays the eggs that are due in every Nest of the player and returns how many; the Lock Tokens of a locked egg come out of the balance.
+function NestManager.tickPlayer(self: NestManager, player: Player, playerData: any): number
 	local odds = hatchOddsManager:getOdds()
 	if not odds then
-		return
+		return 0
 	end
 
 	local params: NestMath.AdvanceParams = {
@@ -230,9 +352,11 @@ function NestManager.tickPlayer(self: NestManager, player: Player, playerData: a
 			return CurrencyGranter.trySpendLockTokens(player, cost, "nestLock")
 		end,
 	}
+	local laidCount = 0
 	for _, nest in playerData:getNests() do
-		NestMath.advance(odds, nest, params)
+		laidCount += #NestMath.advance(odds, nest, params)
 	end
+	return laidCount
 end
 
 -- dev only: moves every timer back so the Nests lay as if that many seconds had passed
@@ -247,11 +371,13 @@ function NestManager.devSkipTime(self: NestManager, player: Player, seconds: num
 		end
 	end
 	self:tickPlayer(player, playerData)
+	self:pushNests(player)
 end
 
--- catches the Nests up for the time the player was away
+-- catches the Nests up for the time the player was away, then tells the client
 function NestManager.notifyAddPlayer(self: NestManager, player: Player, playerData: any)
 	self:tickPlayer(player, playerData)
+	self:pushNests(player)
 end
 
 function NestManager.getNestCount(self: NestManager): number
@@ -264,8 +390,8 @@ function NestManager.init(self: NestManager)
 			task.wait(TICK_SEC)
 			for _, player in players:GetPlayers() do
 				local playerData = gameController:getPlayerData(player)
-				if playerData then
-					self:tickPlayer(player, playerData)
+				if playerData and self:tickPlayer(player, playerData) > 0 then
+					self:pushNests(player)
 				end
 			end
 		end
