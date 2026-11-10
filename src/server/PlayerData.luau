@@ -123,6 +123,7 @@ type PlayerDataFields = {
 	indexIncomeBonusPercent: number,
 	lastIndexRefreshTime: number,
 	hasBackfilledBlueprintIndex: boolean,
+	nests: any, -- { [string nest index]: NestMath.Nest }, the Hatch Dragons Nests; string keys so the save has no holes
 }
 
 export type PlayerData = typeof(setmetatable({} :: PlayerDataFields, PlayerData))
@@ -1201,6 +1202,10 @@ function PlayerData.isAtDragonLimit(self: PlayerData): boolean
 	return self:getPlacedDragonCount() >= self:getDragonLimit()
 end
 
+function PlayerData.getNests(self: PlayerData): any
+	return self.nests
+end
+
 function PlayerData.getEggSlots(self: PlayerData): any
 	return self.eggSlots
 end
@@ -1830,6 +1835,8 @@ function PlayerData.loadSaveData(self: PlayerData, saveData: any)
 	end
 
 	self:updateVanityStateVisuals()
+
+	self.nests = if saveData and type(saveData.nests) == "table" then saveData.nests else {}
 
 	local vanityComponentStatesSaveData = saveData and saveData.vanityComponentStates or nil
 	if vanityComponentStatesSaveData then
@@ -2620,6 +2627,7 @@ function PlayerData.getSaveData(self: PlayerData): any
 	saveData.hasClaimedGroupLuck = self.hasClaimedGroupLuck
 	saveData.plotLuckLevel = self.plotLuckLevel
 	saveData.rebirthLevel = self.rebirthLevel
+	saveData.nests = self.nests
 
 	return saveData
 end
@@ -3615,6 +3623,7 @@ function PlayerData.new(player: Player?): PlayerData
 	self.abilityStatuses = {}
 
 	self.eggSlots = {}
+	self.nests = {}
 	self.totalDragonIncome = 0
 
 	self.purchasedSlotUnlocks = {}

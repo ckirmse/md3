@@ -42,6 +42,11 @@ function GenomeValue.getAverageBand(odds: HatchOdds.Odds, parentA: Genome.Genome
 	return GenomeValue.getBandForScore(odds, mean)
 end
 
+-- seconds between a pair's eggs: the tier's lay time x the parents' average band x the speed boosts
+function GenomeValue.getPairLayTimeSec(odds: HatchOdds.Odds, parentA: Genome.Genome, parentB: Genome.Genome, speedBoost: number): number
+	return GenomeValue.getLayTimeSec(odds, parentA.tier, GenomeValue.getAverageBand(odds, parentA, parentB), speedBoost)
+end
+
 -- all 7 pieces from one element and every one Rare or better
 function GenomeValue.isPure(odds: HatchOdds.Odds, genome: Genome.Genome): boolean
 	local element: HatchOdds.Element? = nil

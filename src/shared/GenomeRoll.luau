@@ -149,6 +149,21 @@ function GenomeRoll.getLockCost(odds: HatchOdds.Odds, locks: { [HatchOdds.Part]:
 	return cost
 end
 
+-- why these locks can't be used with these parents (a locked piece neither has, or too many); nil when they can
+function GenomeRoll.getLockProblem(odds: HatchOdds.Odds, parentA: Genome.Genome, parentB: Genome.Genome, locks: { [HatchOdds.Part]: string }): string?
+	local lockCount = 0
+	for part, id in locks do
+		lockCount += 1
+		if id ~= parentA.pieces[part] and id ~= parentB.pieces[part] then
+			return "locked piece is not from a parent: " .. part .. " " .. id
+		end
+	end
+	if lockCount > odds.config.maxLocks then
+		return "too many locks: " .. lockCount
+	end
+	return nil
+end
+
 -- the parents of a same-tier pair give a baby; nil (after a warn) when the pair or the locks are invalid
 function GenomeRoll.rollGenome(odds: HatchOdds.Odds, params: RollParams, rng: Random): Genome.Genome?
 	local config = odds.config
@@ -159,16 +174,9 @@ function GenomeRoll.rollGenome(odds: HatchOdds.Odds, params: RollParams, rng: Ra
 	end
 
 	local locks = params.locks or {}
-	local lockCount = 0
-	for part, id in locks do
-		lockCount += 1
-		if id ~= parentA.pieces[part] and id ~= parentB.pieces[part] then
-			warn("GenomeRoll: locked piece is not from a parent", part, id)
-			return nil
-		end
-	end
-	if lockCount > config.maxLocks then
-		warn("GenomeRoll: too many locks", lockCount)
+	local lockProblem = GenomeRoll.getLockProblem(odds, parentA, parentB, locks)
+	if lockProblem then
+		warn("GenomeRoll:", lockProblem)
 		return nil
 	end
 

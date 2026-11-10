@@ -9,6 +9,7 @@ local GenomeLook = require("@game/ReplicatedStorage/Shared/GenomeLook")
 local GenomeRoll = require("@game/ReplicatedStorage/Shared/GenomeRoll")
 local GenomeValue = require("@game/ReplicatedStorage/Shared/GenomeValue")
 local HatchOdds = require("@game/ReplicatedStorage/Shared/HatchOdds")
+local NestMath = require("@game/ReplicatedStorage/Shared/NestMath")
 
 local HatchOddsSpec = require("./HatchOddsSpec")
 
@@ -279,6 +280,76 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 	checkLook("legendary head attachment", fireLegendary and fireLegendary.headAttachment, "Red", "Epic")
 	checkLook("mixed tail", mixedLook and mixedLook.tail, "Red", "Common")
 	checkLook("mixed body texture", mixedLook and mixedLook.bodyTexture, "Red", "Uncommon")
+
+	-- the Nest schedule: Wyrmling Common parents lay every 30 s, 3 eggs wait at most, and a full Nest restarts its timer when an egg is taken
+	local eggCount = 0
+	local function makeUuid(): string
+		eggCount += 1
+		return ("%08d-1111-2222-3333-444444444444"):format(eggCount)
+	end
+	local nestA = makeGenome(odds, "fire", "common")
+	local nestB = makeGenome(odds, "fire", "common")
+	nestB.uuid = "nest-b"
+	local nest = NestMath.create(odds, nestA, nestB, {}, 1, 1000)
+	if not nest then
+		table.insert(failures, "NestMath.create returned nil for a valid pair")
+	else
+		check("nest first egg due", nest.nextLayAt or -1, 1030, 0)
+		local params: NestMath.AdvanceParams = { now = 1029, rng = rng, makeUuid = makeUuid }
+		check("no egg before it is due", #NestMath.advance(odds, nest, params), 0, 0)
+		params.now = 1100
+		local laid = NestMath.advance(odds, nest, params)
+		check("eggs laid by the catch-up", #laid, 3, 0)
+		check("third egg is laid at its due time", if #laid == 3 then laid[3].laidAt else -1, 1090, 0)
+		check("a full nest has no due time", if nest.nextLayAt == nil then 1 else 0, 1, 0)
+		params.now = 5000
+		check("a full nest lays nothing", #NestMath.advance(odds, nest, params), 0, 0)
+		NestMath.takeEgg(odds, nest, 1, 5000)
+		check("taking an egg restarts the timer", nest.nextLayAt or -1, 5030, 0)
+		params.now = 5030
+		check("one egg after the timer", #NestMath.advance(odds, nest, params), 1, 0)
+	end
+	local slowA = makeGenome(odds, "fire", "uncommon") -- 7 Uncommon pieces score 7, the Rare band
+	local slowB = makeGenome(odds, "fire", "uncommon")
+	slowB.uuid = "slow-b"
+	local slowNest = NestMath.create(odds, slowA, slowB, {}, 1, 0)
+	check("lay time of Rare parents", if slowNest then NestMath.getLayTimeSec(odds, slowNest) else -1, 37.5, 0.001)
+	local boosted = NestMath.create(odds, nestA, nestB, {}, 0.75, 0)
+	check("lay time with a speed boost", if boosted then NestMath.getLayTimeSec(odds, boosted) else -1, 22.5, 0.001)
+	local mismatchedTier = table.clone(nestB)
+	mismatchedTier.tier = 2
+	if NestMath.create(odds, nestA, mismatchedTier, {}, 1, 0) ~= nil then
+		table.insert(failures, "NestMath.create accepted parents of different tiers")
+	end
+
+	-- the Lock Tokens are charged per egg, and when they run out the Nest keeps laying without the lock
+	local lockParent = makeGenome(odds, "fire", "rare")
+	local lockPartner = makeGenome(odds, "fire", "common")
+	lockPartner.uuid = "lock-b"
+	local lockedNest = NestMath.create(odds, lockParent, lockPartner, { wings = lockParent.pieces.wings }, 1, 0)
+	if not lockedNest then
+		table.insert(failures, "NestMath.create returned nil for a locked pair")
+	else
+		local tokens, charges = 5, 0
+		local lockedEggs = NestMath.advance(odds, lockedNest, {
+			now = 100000,
+			rng = rng,
+			makeUuid = makeUuid,
+			spendTokens = function(cost: number): boolean
+				charges += 1
+				if tokens >= cost then
+					tokens -= cost
+					return true
+				end
+				return false
+			end,
+		})
+		check("tokens left after one Rare lock", tokens, 1, 0)
+		check("every egg asked for its tokens", charges, 3, 0)
+		if lockedEggs[1] and lockedEggs[1].genome.pieces.wings ~= lockParent.pieces.wings then
+			table.insert(failures, "the first locked egg did not copy the locked wings")
+		end
+	end
 
 	-- a fresh roll has no parents, keeps its mix and tier, and only rolls pieces of the elements it has
 	local fresh = GenomeRoll.rollFresh(odds, { fire = 0.5, water = 0.5, nature = 0 }, 4, "00000000-1111-2222-3333-444444444444", 0, rng)

@@ -1,0 +1,129 @@
+--!strict
+
+-- A Nest's lay schedule: two same-tier parents lay an egg every lay time while fewer than the cap wait, each rolled when it is laid.
+-- Pure: the caller passes the time, a Random and the uuid and token callbacks, so the server, the offline catch-up and the self-test share it.
+
+local Genome = require("./Genome")
+local GenomeRoll = require("./GenomeRoll")
+local GenomeValue = require("./GenomeValue")
+local HatchOdds = require("./HatchOdds")
+
+local NestMath = {}
+
+-- the most eggs that wait in one Nest; a full Nest stops laying until one is taken
+NestMath.EGG_CAP = 3
+
+export type Egg = {
+	genome: Genome.Genome, -- fully rolled at laying, so a skip or a disconnect can't reroll it
+	laidAt: number,
+}
+
+export type Nest = {
+	parentA: Genome.Genome,
+	parentB: Genome.Genome,
+	locks: { [HatchOdds.Part]: string },
+	eggs: { Egg },
+	nextLayAt: number?, -- nil while the Nest is full
+	speedBoost: number, -- the speed boosts multiplied together, 1 for none
+}
+
+export type AdvanceParams = {
+	now: number,
+	rng: Random,
+	makeUuid: () -> string,
+	weather: HatchOdds.Weather?, -- the weather during this advance, nil for offline catch-up
+	spendTokens: ((cost: number) -> boolean)?, -- charges the Lock Tokens of one egg, nil means locks are free
+}
+
+-- seconds between eggs: the tier's lay time x the parents' average band x the speed boosts
+function NestMath.getLayTimeSec(odds: HatchOdds.Odds, nest: Nest): number
+	return GenomeValue.getPairLayTimeSec(odds, nest.parentA, nest.parentB, nest.speedBoost)
+end
+
+-- a new Nest whose first egg is due one lay time from now; nil (after a warn) when the pair or the locks are invalid
+function NestMath.create(
+	odds: HatchOdds.Odds,
+	parentA: Genome.Genome,
+	parentB: Genome.Genome,
+	locks: { [HatchOdds.Part]: string },
+	speedBoost: number,
+	now: number
+): Nest?
+	if parentA.tier ~= parentB.tier then
+		warn("NestMath: parents of different tiers", parentA.uuid, parentB.uuid)
+		return nil
+	end
+
+	local lockProblem = GenomeRoll.getLockProblem(odds, parentA, parentB, locks)
+	if lockProblem then
+		warn("NestMath:", lockProblem)
+		return nil
+	end
+
+	local nest: Nest = {
+		parentA = parentA,
+		parentB = parentB,
+		locks = table.clone(locks),
+		eggs = {},
+		nextLayAt = nil,
+		speedBoost = speedBoost,
+	}
+	nest.nextLayAt = now + NestMath.getLayTimeSec(odds, nest)
+	return nest
+end
+
+-- Lays every egg that is due by params.now, up to the cap, and returns them. An egg is laid at its due time, so catching up after
+-- being offline gives the same eggs as having been online; a full Nest has no due time and lays nothing.
+function NestMath.advance(odds: HatchOdds.Odds, nest: Nest, params: AdvanceParams): { Egg }
+	local laid: { Egg } = {}
+	local layTimeSec = NestMath.getLayTimeSec(odds, nest)
+
+	while #nest.eggs < NestMath.EGG_CAP do
+		local dueAt = nest.nextLayAt
+		if dueAt == nil or dueAt > params.now then
+			break
+		end
+
+		-- the locks pause when the player can't pay for this egg; the Nest keeps laying without them
+		local locks = nest.locks
+		local lockCost = GenomeRoll.getLockCost(odds, locks)
+		if lockCost > 0 and params.spendTokens and not params.spendTokens(lockCost) then
+			locks = {}
+		end
+
+		local genome = GenomeRoll.rollGenome(odds, {
+			parentA = nest.parentA,
+			parentB = nest.parentB,
+			locks = locks,
+			weather = params.weather,
+			uuid = params.makeUuid(),
+			bornAt = dueAt,
+		}, params.rng)
+		if not genome then
+			-- the parents can't breed, so stop instead of retrying forever
+			nest.nextLayAt = nil
+			break
+		end
+
+		local egg: Egg = { genome = genome, laidAt = dueAt }
+		table.insert(nest.eggs, egg)
+		table.insert(laid, egg)
+		nest.nextLayAt = dueAt + layTimeSec
+	end
+
+	if #nest.eggs >= NestMath.EGG_CAP then
+		nest.nextLayAt = nil
+	end
+	return laid
+end
+
+-- Removes the egg at the index. A Nest that was full starts its next lay time now, since it was not laying while it waited.
+function NestMath.takeEgg(odds: HatchOdds.Odds, nest: Nest, index: number, now: number): Egg?
+	local egg = table.remove(nest.eggs, index)
+	if egg and nest.nextLayAt == nil and #nest.eggs < NestMath.EGG_CAP then
+		nest.nextLayAt = now + NestMath.getLayTimeSec(odds, nest)
+	end
+	return egg
+end
+
+return NestMath

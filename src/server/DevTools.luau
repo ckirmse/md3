@@ -18,6 +18,7 @@ local indexV2Manager = require("./IndexV2Manager")
 local itemManager = require("./ItemManager")
 local lootTableManager = require("./LootTableManager")
 local mergeMixin = require("./MergeMixin")
+local nestManager = require("./NestManager")
 local objectDataStore = require("./ObjectDataStore")
 local playerAttributesManager = require("./PlayerAttributesManager")
 local playtimeRewardManager = require("./PlaytimeRewardManager")
@@ -1116,6 +1117,119 @@ function DevTools.grantGenomeDragon(self: DevTools, player: Player, element: any
 	local item = self:_createItem(player, itemName, genome)
 	if isPlaced == true and item and item:getType() == "shadowDragon" then
 		(item :: Types.ShadowDragon):moveDragonFromBackpackToWorkspace()
+	end
+end
+
+-- the player's genome dragons, wherever they are
+local function getGenomeDragons(player: Player): { Types.ShadowDragon }
+	local items = itemManager:getItemsOnGroundByUserId(player.UserId)
+	for _, item in itemManager:getItemsNotOnGroundByUserId(player.UserId) do
+		table.insert(items, item)
+	end
+	local dragons: { Types.ShadowDragon } = {}
+	for _, item in items do
+		if item:getType() == "shadowDragon" and (item :: Types.ShadowDragon):getGenome() then
+			table.insert(dragons, item :: Types.ShadowDragon)
+		end
+	end
+	return dragons
+end
+
+function DevTools.giveLockTokens(self: DevTools, player: Player, amount: any)
+	if type(amount) ~= "number" or amount ~= math.floor(amount) or amount < 1 or amount > 1000 then
+		warn("giveLockTokens: amount must be a whole number from 1 to 1000", amount)
+		return
+	end
+	CurrencyGranter.grantLockTokens(player, amount, "devTool")
+end
+
+-- Hatch Dragons Nests: puts the first two genome dragons of the same tier into the Nest, optionally locking the first one's wings
+function DevTools.nestPair(self: DevTools, player: Player, nestIndex: any, isLocked: any)
+	local dragons = getGenomeDragons(player)
+	for indexA = 1, #dragons do
+		for indexB = indexA + 1, #dragons do
+			local genomeA = dragons[indexA]:getGenome() :: any
+			local genomeB = dragons[indexB]:getGenome() :: any
+			if genomeA.tier == genomeB.tier then
+				local locks = if isLocked == true then { wings = genomeA.pieces.wings } else {}
+				local _, message = nestManager:setNest(player, nestIndex, dragons[indexA]:getItemId(), dragons[indexB]:getItemId(), locks)
+				gameController:sendSystemMessageToPlayer(player, message)
+				return
+			end
+		end
+	end
+	gameController:sendSystemMessageToPlayer(player, "Need two bred dragons of the same tier")
+end
+
+function DevTools.nestClear(self: DevTools, player: Player, nestIndex: any)
+	local _, message = nestManager:clearNest(player, nestIndex)
+	gameController:sendSystemMessageToPlayer(player, message)
+end
+
+function DevTools.nestHatch(self: DevTools, player: Player, nestIndex: any, eggIndex: any, decision: any)
+	local _, message = nestManager:hatchEgg(player, nestIndex, eggIndex, decision)
+	gameController:sendSystemMessageToPlayer(player, message)
+end
+
+function DevTools.nestSkip(self: DevTools, player: Player, seconds: any)
+	if type(seconds) ~= "number" or seconds < 1 or seconds > 86400 then
+		warn("nestSkip: seconds must be from 1 to 86400", seconds)
+		return
+	end
+	nestManager:devSkipTime(player, seconds)
+end
+
+function DevTools.nestDump(self: DevTools, player: Player)
+	local odds = hatchOddsManager:getOdds()
+	local playerData = gameController:getPlayerData(player)
+	if not odds or not playerData then
+		return
+	end
+
+	print("Nests for", player.Name, "| lock tokens", CurrencyGranter.getLockTokens(player))
+	local now = workspace:GetServerTimeNow()
+	for nestIndex = 1, nestManager:getNestCount() do
+		local nest = playerData:getNests()[tostring(nestIndex)]
+		if not nest then
+			print(" ", "Nest", nestIndex, "empty")
+			continue
+		end
+		local locked = {}
+		for part, pieceId in nest.locks do
+			table.insert(locked, part .. "=" .. pieceId)
+		end
+		print(
+			" ",
+			"Nest",
+			nestIndex,
+			"parents",
+			nest.parentA.code,
+			nest.parentB.code,
+			"tier",
+			odds.config.tiers[nest.parentA.tier].name,
+			"| next egg in",
+			if nest.nextLayAt then string.format("%.0f s", nest.nextLayAt - now) else "- (full)",
+			"| locks",
+			if #locked > 0 then table.concat(locked, ", ") else "none"
+		)
+		for eggIndex, egg in nest.eggs do
+			local genome = egg.genome
+			print(
+				"   ",
+				"egg",
+				eggIndex,
+				genome.code,
+				GenomeValue.getBand(odds, genome),
+				"score",
+				GenomeValue.getScore(odds, genome),
+				"mutation",
+				genome.mutation,
+				"tier",
+				odds.config.tiers[genome.tier].name,
+				"value",
+				math.floor(GenomeValue.getValue(odds, genome))
+			)
+		end
 	end
 end
 

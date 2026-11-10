@@ -381,6 +381,35 @@ function ClientDevTools.init(self: ClientDevTools, devToolSettings: any)
 			if Iris.Button({ "Dump Genome Dragons" }).clicked() then
 				RemoteEvents.TryDevTool:FireServer("dumpGenomeDragons")
 			end
+			Iris.Text({ "Hatch Dragons Nests (Nest 1)" })
+			Iris.SameLine()
+			if Iris.Button({ "Give 20 Lock Tokens" }).clicked() then
+				RemoteEvents.TryDevTool:FireServer("giveLockTokens", 20)
+			end
+			if Iris.Button({ "Pair first two" }).clicked() then
+				RemoteEvents.TryDevTool:FireServer("nestPair", 1, false)
+			end
+			if Iris.Button({ "Pair + lock wings" }).clicked() then
+				RemoteEvents.TryDevTool:FireServer("nestPair", 1, true)
+			end
+			Iris.End()
+			Iris.SameLine()
+			if Iris.Button({ "Skip 60 s" }).clicked() then
+				RemoteEvents.TryDevTool:FireServer("nestSkip", 60)
+			end
+			if Iris.Button({ "Sell first egg" }).clicked() then
+				RemoteEvents.TryDevTool:FireServer("nestHatch", 1, 1, "sell")
+			end
+			if Iris.Button({ "Keep first egg" }).clicked() then
+				RemoteEvents.TryDevTool:FireServer("nestHatch", 1, 1, "keep")
+			end
+			if Iris.Button({ "Clear Nest" }).clicked() then
+				RemoteEvents.TryDevTool:FireServer("nestClear", 1)
+			end
+			if Iris.Button({ "Dump Nests" }).clicked() then
+				RemoteEvents.TryDevTool:FireServer("nestDump")
+			end
+			Iris.End()
 			if Iris.Button({ "Place All Eggs" }).clicked() then
 				RemoteEvents.TryDevTool:FireServer("placeAllEggs")
 			end
