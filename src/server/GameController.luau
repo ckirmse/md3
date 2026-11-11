@@ -1907,8 +1907,8 @@ function GameController.tryBuyDeal(self: GameController, player: Player, dealKey
 end
 
 -- Hatch Dragons Nests: NestManager checks every argument, since they come from the client
-function GameController.tryNestSet(self: GameController, player: Player, nestIndex: any, itemIdA: any, itemIdB: any, locks: any): ()
-	nestManager:trySet(player, nestIndex, itemIdA, itemIdB, locks)
+function GameController.tryNestSet(self: GameController, player: Player, nestIndex: any, itemIdA: any, itemIdB: any): ()
+	nestManager:trySet(player, nestIndex, itemIdA, itemIdB)
 end
 
 function GameController.tryNestBuy(self: GameController, player: Player): ()

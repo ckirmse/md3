@@ -390,14 +390,8 @@ function ClientDevTools.init(self: ClientDevTools, devToolSettings: any)
 				RemoteEvents.TryDevTool:FireServer("dumpGenomeDragons")
 			end
 			Iris.SeparatorText({ "Nests (these act on Nest 1)" })
-			if Iris.Button({ "Give 20 Lock Tokens" }).clicked() then
-				RemoteEvents.TryDevTool:FireServer("giveLockTokens", 20)
-			end
 			if Iris.Button({ "Pair first two bred dragons" }).clicked() then
-				RemoteEvents.TryDevTool:FireServer("nestPair", 1, false)
-			end
-			if Iris.Button({ "Pair first two + lock wings" }).clicked() then
-				RemoteEvents.TryDevTool:FireServer("nestPair", 1, true)
+				RemoteEvents.TryDevTool:FireServer("nestPair", 1)
 			end
 			if Iris.Button({ "Skip 60 seconds" }).clicked() then
 				RemoteEvents.TryDevTool:FireServer("nestSkip", 60)

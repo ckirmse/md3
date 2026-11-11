@@ -8,7 +8,7 @@
 -- pushed after every change and every laid egg) and NotifyNestReveal. Eggs are named by their genome uuid, so a stale click can't hit another egg.
 -- The Nest count is the config's nestBaseCount plus the Nests bought with Gold (nestGoldPrices, in order) and the bonus slots from other
 -- sources, up to nestMaxCount; a Nest that holds dragons is never hidden if the count later drops.
--- As of 2026-november-10 not built: weather boosts and traits on waiting eggs, the first-Rare-piece and Gene Book lock unlocks, Incubators,
+-- As of 2026-november-10 not built: weather boosts and traits on waiting eggs, Incubators,
 -- the Gene Book and gamepass Nests (the bonus slot is their hook), and the grow-up wait before kept dragons can breed.
 local NestManager = {}
 NestManager.__index = NestManager
@@ -134,7 +134,7 @@ function NestManager.giveGenomeDragon(self: NestManager, player: Player, genome:
 	return dragon
 end
 
--- the whole state the client draws: one entry per Nest slot, the parents' genomes, the locks, the next egg's server time and the waiting eggs
+-- the whole state the client draws: one entry per Nest slot, the parents' genomes, the next egg's server time and the waiting eggs
 function NestManager.getClientData(self: NestManager, player: Player, playerData: any): any?
 	local odds = hatchOddsManager:getOdds()
 	if not odds then
@@ -156,7 +156,6 @@ function NestManager.getClientData(self: NestManager, player: Player, playerData
 			isEmpty = false,
 			parentA = nest.parentA,
 			parentB = nest.parentB,
-			locks = nest.locks,
 			nextLayAt = nest.nextLayAt,
 			layTimeSec = NestMath.getLayTimeSec(odds, nest),
 			eggs = eggs,
@@ -164,8 +163,6 @@ function NestManager.getClientData(self: NestManager, player: Player, playerData
 	end
 
 	return {
-		lockTokens = CurrencyGranter.getLockTokens(player),
-		maxLocks = odds.config.maxLocks,
 		nextNestPrice = getNextNestPrice(odds, playerData),
 		plotIndex = plotsManager:getPlotIndexByUserId(player.UserId),
 		nests = nests,
@@ -184,9 +181,9 @@ function NestManager.pushNests(self: NestManager, player: Player)
 	end
 end
 
--- Moves two of the player's genome dragons into an empty Nest. locks maps a part to a parent's piece id, up to the config's maximum.
+-- Moves two of the player's genome dragons into an empty Nest.
 -- Returns whether it worked and a short message; the arguments come from the client, so everything is checked.
-function NestManager.setNest(self: NestManager, player: Player, nestIndex: any, itemIdA: any, itemIdB: any, locks: any): (boolean, string)
+function NestManager.setNest(self: NestManager, player: Player, nestIndex: any, itemIdA: any, itemIdB: any): (boolean, string)
 	local odds = hatchOddsManager:getOdds()
 	local playerData = gameController:getPlayerData(player)
 	if not odds or not playerData then
@@ -200,23 +197,6 @@ function NestManager.setNest(self: NestManager, player: Player, nestIndex: any, 
 	end
 	if type(itemIdA) ~= "number" or type(itemIdB) ~= "number" or itemIdA == itemIdB then
 		return false, "Pick two different dragons"
-	end
-
-	local checkedLocks: { [HatchOdds.Part]: string } = {}
-	if locks ~= nil then
-		if type(locks) ~= "table" then
-			return false, "Invalid locks"
-		end
-		for partIndex = 1, #HatchOdds.PARTS do
-			local part: HatchOdds.Part = HatchOdds.PARTS[partIndex]
-			local pieceId = locks[part]
-			if pieceId ~= nil then
-				if type(pieceId) ~= "string" then
-					return false, "Invalid locks"
-				end
-				checkedLocks[part] = pieceId
-			end
-		end
 	end
 
 	local dragons: { Types.ShadowDragon } = {}
@@ -234,9 +214,9 @@ function NestManager.setNest(self: NestManager, player: Player, nestIndex: any, 
 
 	-- both dragons were checked above to have a genome
 	local parentA, parentB = dragons[1]:getGenome() :: any, dragons[2]:getGenome() :: any
-	local nest = NestMath.create(odds, parentA, parentB, checkedLocks, 1, workspace:GetServerTimeNow())
+	local nest = NestMath.create(odds, parentA, parentB, 1, workspace:GetServerTimeNow())
 	if not nest then
-		return false, "Those dragons can't share a Nest (they need the same tier, and each lock must be a piece one of them has)"
+		return false, "Those dragons can't share a Nest (they need the same tier)"
 	end
 
 	for _, dragon in dragons do
@@ -337,8 +317,8 @@ function NestManager.hatchEgg(self: NestManager, player: Player, nestIndex: any,
 end
 
 -- the client's four requests: each checks, answers with a short message and sends the new state
-function NestManager.trySet(self: NestManager, player: Player, nestIndex: any, itemIdA: any, itemIdB: any, locks: any)
-	local _, message = self:setNest(player, nestIndex, itemIdA, itemIdB, locks)
+function NestManager.trySet(self: NestManager, player: Player, nestIndex: any, itemIdA: any, itemIdB: any)
+	local _, message = self:setNest(player, nestIndex, itemIdA, itemIdB)
 	gameController:sendSystemMessageToPlayer(player, message)
 	self:pushNests(player)
 end
@@ -366,7 +346,7 @@ function NestManager.tryDecide(self: NestManager, player: Player, nestIndex: any
 	self:pushNests(player)
 end
 
--- Lays the eggs that are due in every Nest of the player and returns how many; the Lock Tokens of a locked egg come out of the balance.
+-- Lays the eggs that are due in every Nest of the player and returns how many.
 function NestManager.tickPlayer(self: NestManager, player: Player, playerData: any): number
 	local odds = hatchOddsManager:getOdds()
 	if not odds then
@@ -378,9 +358,6 @@ function NestManager.tickPlayer(self: NestManager, player: Player, playerData: a
 		rng = self.random,
 		makeUuid = makeUuid,
 		weather = nil,
-		spendTokens = function(cost: number): boolean
-			return CurrencyGranter.trySpendLockTokens(player, cost, "nestLock")
-		end,
 	}
 	local laidCount = 0
 	for _, nest in playerData:getNests() do

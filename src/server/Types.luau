@@ -1042,7 +1042,7 @@ export type GameController = {
 	tryNestClear: (self: GameController, player: Player, nestIndex: any) -> (),
 	tryNestDecide: (self: GameController, player: Player, nestIndex: any, eggId: any, decision: any) -> (),
 	tryNestHatch: (self: GameController, player: Player, nestIndex: any, eggId: any) -> (),
-	tryNestSet: (self: GameController, player: Player, nestIndex: any, itemIdA: any, itemIdB: any, locks: any) -> (),
+	tryNestSet: (self: GameController, player: Player, nestIndex: any, itemIdA: any, itemIdB: any) -> (),
 	tryOpenChest: (self: GameController, player: Player, objectId: number, heldItemId: any) -> (),
 	tryOpenCrate: (self: GameController, player: Player, crateItemId: any) -> (),
 	tryOpenPack: (self: GameController, player: Player, packItemId: any) -> (),

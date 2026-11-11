@@ -1,7 +1,7 @@
 --!strict
 
 -- A Nest's lay schedule: two same-tier parents lay an egg every lay time while fewer than the cap wait, each rolled when it is laid.
--- Pure: the caller passes the time, a Random and the uuid and token callbacks, so the server, the offline catch-up and the self-test share it.
+-- Pure: the caller passes the time, a Random and the and uuid callback, so the server, the offline catch-up and the self-test share it.
 
 local Genome = require("./Genome")
 local GenomeRoll = require("./GenomeRoll")
@@ -21,7 +21,6 @@ export type Egg = {
 export type Nest = {
 	parentA: Genome.Genome,
 	parentB: Genome.Genome,
-	locks: { [HatchOdds.Part]: string },
 	eggs: { Egg },
 	nextLayAt: number?, -- nil while the Nest is full
 	speedBoost: number, -- the speed boosts multiplied together, 1 for none
@@ -32,7 +31,6 @@ export type AdvanceParams = {
 	rng: Random,
 	makeUuid: () -> string,
 	weather: HatchOdds.Weather?, -- the weather during this advance, nil for offline catch-up
-	spendTokens: ((cost: number) -> boolean)?, -- charges the Lock Tokens of one egg, nil means locks are free
 }
 
 -- seconds between eggs: the tier's lay time x the parents' average band x the speed boosts
@@ -40,12 +38,11 @@ function NestMath.getLayTimeSec(odds: HatchOdds.Odds, nest: Nest): number
 	return GenomeValue.getPairLayTimeSec(odds, nest.parentA, nest.parentB, nest.speedBoost)
 end
 
--- a new Nest whose first egg is due one lay time from now; nil (after a warn) when the pair or the locks are invalid
+-- a new Nest whose first egg is due one lay time from now; nil (after a warn) when the pair is invalid
 function NestMath.create(
 	odds: HatchOdds.Odds,
 	parentA: Genome.Genome,
 	parentB: Genome.Genome,
-	locks: { [HatchOdds.Part]: string },
 	speedBoost: number,
 	now: number
 ): Nest?
@@ -54,16 +51,9 @@ function NestMath.create(
 		return nil
 	end
 
-	local lockProblem = GenomeRoll.getLockProblem(odds, parentA, parentB, locks)
-	if lockProblem then
-		warn("NestMath:", lockProblem)
-		return nil
-	end
-
 	local nest: Nest = {
 		parentA = parentA,
 		parentB = parentB,
-		locks = table.clone(locks),
 		eggs = {},
 		nextLayAt = nil,
 		speedBoost = speedBoost,
@@ -84,17 +74,9 @@ function NestMath.advance(odds: HatchOdds.Odds, nest: Nest, params: AdvanceParam
 			break
 		end
 
-		-- the locks pause when the player can't pay for this egg; the Nest keeps laying without them
-		local locks = nest.locks
-		local lockCost = GenomeRoll.getLockCost(odds, locks)
-		if lockCost > 0 and params.spendTokens and not params.spendTokens(lockCost) then
-			locks = {}
-		end
-
 		local genome = GenomeRoll.rollGenome(odds, {
 			parentA = nest.parentA,
 			parentB = nest.parentB,
-			locks = locks,
 			weather = params.weather,
 			uuid = params.makeUuid(),
 			bornAt = dueAt,

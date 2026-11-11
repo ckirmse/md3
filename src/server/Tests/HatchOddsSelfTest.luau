@@ -205,15 +205,13 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 	end
 	check("Giant rate", giants / samples, config.giantChance, 0.004)
 
-	-- a full roll: averaged shares, pieces from the allowed set, locks honoured and charged
+	-- a full roll: averaged shares, pieces from the allowed set
 	local parentA = makeGenome(odds, "fire", "rare")
 	local parentB = makeGenome(odds, "water", "common")
 	parentB.uuid = "test-b"
-	local lockedWings = parentA.pieces.wings
 	local baby = GenomeRoll.rollGenome(odds, {
 		parentA = parentA,
 		parentB = parentB,
-		locks = { wings = lockedWings },
 		uuid = "00000000-1111-2222-3333-444444444444",
 		bornAt = 0,
 	}, rng)
@@ -223,9 +221,6 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 		check("baby Fire share", baby.shares.fire, 0.5, 0.0001)
 		check("baby Water share", baby.shares.water, 0.5, 0.0001)
 		check("baby Nature share", baby.shares.nature, 0, 0.0001)
-		if baby.pieces.wings ~= lockedWings then
-			table.insert(failures, "the locked wings were not copied")
-		end
 		for _, part in HatchOdds.PARTS do
 			local piece = odds.catalog.byId[baby.pieces[part]]
 			if not piece or piece.element == "nature" then
@@ -239,7 +234,6 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 			table.insert(failures, "baby tier was " .. tostring(baby.tier))
 		end
 	end
-	check("lock cost of a Rare wing", GenomeRoll.getLockCost(odds, { wings = lockedWings }), config.lockTokenCost.rare, 0)
 	local mismatched = table.clone(parentB)
 	mismatched.tier = 2
 	if GenomeRoll.rollGenome(odds, { parentA = parentA, parentB = mismatched, uuid = "x", bornAt = 0 }, rng) ~= nil then
@@ -290,7 +284,7 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 	local nestA = makeGenome(odds, "fire", "common")
 	local nestB = makeGenome(odds, "fire", "common")
 	nestB.uuid = "nest-b"
-	local nest = NestMath.create(odds, nestA, nestB, {}, 1, 1000)
+	local nest = NestMath.create(odds, nestA, nestB, 1, 1000)
 	if not nest then
 		table.insert(failures, "NestMath.create returned nil for a valid pair")
 	else
@@ -312,43 +306,14 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 	local slowA = makeGenome(odds, "fire", "uncommon") -- 7 Uncommon pieces score 7, the Rare band
 	local slowB = makeGenome(odds, "fire", "uncommon")
 	slowB.uuid = "slow-b"
-	local slowNest = NestMath.create(odds, slowA, slowB, {}, 1, 0)
+	local slowNest = NestMath.create(odds, slowA, slowB, 1, 0)
 	check("lay time of Rare parents", if slowNest then NestMath.getLayTimeSec(odds, slowNest) else -1, 37.5, 0.001)
-	local boosted = NestMath.create(odds, nestA, nestB, {}, 0.75, 0)
+	local boosted = NestMath.create(odds, nestA, nestB, 0.75, 0)
 	check("lay time with a speed boost", if boosted then NestMath.getLayTimeSec(odds, boosted) else -1, 22.5, 0.001)
 	local mismatchedTier = table.clone(nestB)
 	mismatchedTier.tier = 2
-	if NestMath.create(odds, nestA, mismatchedTier, {}, 1, 0) ~= nil then
+	if NestMath.create(odds, nestA, mismatchedTier, 1, 0) ~= nil then
 		table.insert(failures, "NestMath.create accepted parents of different tiers")
-	end
-
-	-- the Lock Tokens are charged per egg, and when they run out the Nest keeps laying without the lock
-	local lockParent = makeGenome(odds, "fire", "rare")
-	local lockPartner = makeGenome(odds, "fire", "common")
-	lockPartner.uuid = "lock-b"
-	local lockedNest = NestMath.create(odds, lockParent, lockPartner, { wings = lockParent.pieces.wings }, 1, 0)
-	if not lockedNest then
-		table.insert(failures, "NestMath.create returned nil for a locked pair")
-	else
-		local tokens, charges = 5, 0
-		local lockedEggs = NestMath.advance(odds, lockedNest, {
-			now = 100000,
-			rng = rng,
-			makeUuid = makeUuid,
-			spendTokens = function(cost: number): boolean
-				charges += 1
-				if tokens >= cost then
-					tokens -= cost
-					return true
-				end
-				return false
-			end,
-		})
-		check("tokens left after one Rare lock", tokens, 1, 0)
-		check("every egg asked for its tokens", charges, 3, 0)
-		if lockedEggs[1] and lockedEggs[1].genome.pieces.wings ~= lockParent.pieces.wings then
-			table.insert(failures, "the first locked egg did not copy the locked wings")
-		end
 	end
 
 	-- a fresh roll has no parents, keeps its mix and tier, and only rolls pieces of the elements it has

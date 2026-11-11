@@ -1135,11 +1135,10 @@ local function getGenomeDragons(player: Player): { Types.ShadowDragon }
 	return dragons
 end
 
--- empties every Nest (the parents and eggs are not returned) and sets the Lock Tokens to 0
+-- empties every Nest (the parents and eggs are not returned)
 function DevTools.resetNests(self: DevTools, player: Player)
 	local playerData = gameController:getPlayerData(player)
 	playerData:resetNests()
-	playerAttributesManager:set(player, PlayerAttributeKeys.LOCK_TOKENS, 0)
 	nestManager:pushNests(player)
 end
 
@@ -1148,25 +1147,15 @@ function DevTools.nestAddSlot(self: DevTools, player: Player)
 	nestManager:devAddSlot(player)
 end
 
-function DevTools.giveLockTokens(self: DevTools, player: Player, amount: any)
-	if type(amount) ~= "number" or amount ~= math.floor(amount) or amount < 1 or amount > 1000 then
-		warn("giveLockTokens: amount must be a whole number from 1 to 1000", amount)
-		return
-	end
-	CurrencyGranter.grantLockTokens(player, amount, "devTool")
-	nestManager:pushNests(player)
-end
-
--- Hatch Dragons Nests: puts the first two genome dragons of the same tier into the Nest, optionally locking the first one's wings
-function DevTools.nestPair(self: DevTools, player: Player, nestIndex: any, isLocked: any)
+-- Hatch Dragons Nests: puts the first two genome dragons of the same tier into the Nest
+function DevTools.nestPair(self: DevTools, player: Player, nestIndex: any)
 	local dragons = getGenomeDragons(player)
 	for indexA = 1, #dragons do
 		for indexB = indexA + 1, #dragons do
 			local genomeA = dragons[indexA]:getGenome() :: any
 			local genomeB = dragons[indexB]:getGenome() :: any
 			if genomeA.tier == genomeB.tier then
-				local locks = if isLocked == true then { wings = genomeA.pieces.wings } else {}
-				nestManager:trySet(player, nestIndex, dragons[indexA]:getItemId(), dragons[indexB]:getItemId(), locks)
+				nestManager:trySet(player, nestIndex, dragons[indexA]:getItemId(), dragons[indexB]:getItemId())
 				return
 			end
 		end
@@ -1197,17 +1186,13 @@ function DevTools.nestDump(self: DevTools, player: Player)
 		return
 	end
 
-	print("Nests for", player.Name, "| lock tokens", CurrencyGranter.getLockTokens(player))
+	print("Nests for", player.Name)
 	local now = workspace:GetServerTimeNow()
 	for nestIndex = 1, nestManager:getNestCount(playerData) do
 		local nest = playerData:getNests()[tostring(nestIndex)]
 		if not nest then
 			print(" ", "Nest", nestIndex, "empty")
 			continue
-		end
-		local locked = {}
-		for part, pieceId in nest.locks do
-			table.insert(locked, part .. "=" .. pieceId)
 		end
 		print(
 			" ",
@@ -1219,9 +1204,7 @@ function DevTools.nestDump(self: DevTools, player: Player)
 			"tier",
 			odds.config.tiers[nest.parentA.tier].name,
 			"| next egg in",
-			if nest.nextLayAt then string.format("%.0f s", nest.nextLayAt - now) else "- (full)",
-			"| locks",
-			if #locked > 0 then table.concat(locked, ", ") else "none"
+			if nest.nextLayAt then string.format("%.0f s", nest.nextLayAt - now) else "- (full)"
 		)
 		for eggIndex, egg in nest.eggs do
 			local genome = egg.genome

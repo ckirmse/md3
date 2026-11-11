@@ -39,8 +39,6 @@ function HatchOddsSpec.build(): HatchOdds.Config
 		pieces = buildPieces(),
 		pieceParentBuff = { common = 1, uncommon = 2, rare = 3, legendary = 6 },
 		pieceScore = { common = 0, uncommon = 1, rare = 3, legendary = 10 },
-		lockTokenCost = { common = 1, uncommon = 2, rare = 4, legendary = 10 },
-		maxLocks = 2,
 		dragonBands = {
 			{ name = "common", minScore = 0 },
 			{ name = "uncommon", minScore = 3 },

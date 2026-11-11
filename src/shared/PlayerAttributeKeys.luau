@@ -3,7 +3,6 @@
 local PlayerAttributeKeys = {
 	COINS = "coins",
 	DIAMONDS = "diamonds",
-	LOCK_TOKENS = "lockTokens",
 	TOTAL_DRAGON_INCOME = "totalDragonIncome",
 	INCOME_PER_SECOND = "incomePerSecond",
 	REBIRTH_LEVEL = "rebirthLevel",

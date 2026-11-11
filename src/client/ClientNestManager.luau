@@ -1,7 +1,7 @@
 --!strict
 
--- The Hatch Dragons Nests screen. The HUD NestsButton opens the Nests overlay: one card per Nest with its parents, locks, next-egg timer and
--- waiting eggs, a picker to put two bred dragons in (with their locks), and a reveal popup where an egg's 7 pieces appear before the player
+-- The Hatch Dragons Nests screen. The HUD NestsButton opens the Nests overlay: one card per Nest with its parents, next-egg timer and
+-- waiting eggs, a picker to put two bred dragons in, and a reveal popup where an egg's 7 pieces appear before the player
 -- sells or keeps it. The server owns everything: the state arrives in the init data and again in NotifyNests after every change, and the
 -- client only sends intent (TryNestSet, TryNestClear, TryNestHatch, TryNestDecide). The gui is authored in Studio; see setUpGui for its shape.
 local ClientNestManager = {}
@@ -39,9 +39,6 @@ local PART_LABELS: { [string]: string } = {
 	meshTexture = "Texture",
 }
 
--- the Locks label when the player can't pay for the locks, so an egg would be laid without them
-local LOCKS_PAUSED_COLOR = Color3.fromRGB(255, 90, 70)
-
 -- piece rarities and dragon bands share one palette
 local RARITY_COLORS: { [string]: Color3 } = {
 	common = Color3.fromRGB(190, 190, 190),
@@ -53,11 +50,9 @@ local RARITY_COLORS: { [string]: Color3 } = {
 }
 
 type NestsState = {
-	lockTokens: number,
-	maxLocks: number,
 	nextNestPrice: number?, -- the Gold price of the next Nest the player can buy, nil when there is none
 	plotIndex: number?, -- the player's plot, which the Nest models in the world are matched to
-	nests: { any }, -- one per slot: { isEmpty = true } or { parentA, parentB, locks, nextLayAt, layTimeSec, eggs }
+	nests: { any }, -- one per slot: { isEmpty = true } or { parentA, parentB, nextLayAt, layTimeSec, eggs }
 }
 
 type Candidate = { itemId: number, genome: any }
@@ -72,13 +67,11 @@ type ClientNestManagerFields = {
 	picker: any?,
 	reveal: any?,
 	openButton: any?,
-	lockTokensLabel: any?,
 	buyNestButton: any?,
 	isOverlayOpen: boolean,
 	pickerNestIndex: number?,
 	pickerCandidates: { Candidate },
 	pickerSelected: { Candidate },
-	pickerLocks: { [string]: string },
 	revealToken: number,
 	revealed: { nestIndex: number, eggId: string }?,
 	tickerDisconnect: (() -> ())?,
@@ -234,30 +227,6 @@ function ClientNestManager.rebuildNests(self: ClientNestManager)
 			setText(filled:FindFirstChild("ParentA"), describeGenome(nest.parentA))
 			setText(filled:FindFirstChild("ParentB"), describeGenome(nest.parentB))
 
-			local odds = clientHatchOdds:getOdds()
-			local lockTexts = {}
-			local lockCost = 0
-			for part, pieceId in nest.locks do
-				table.insert(lockTexts, ("%s: %s"):format(PART_LABELS[part] or part, (formatPiece(pieceId))))
-				local piece = if odds then odds.catalog.byId[pieceId] else nil
-				if odds and piece then
-					lockCost += odds.config.lockTokenCost[piece.rarity]
-				end
-			end
-			table.sort(lockTexts)
-			local locksLabel = filled:FindFirstChild("Locks")
-			if #lockTexts == 0 then
-				setText(locksLabel, "No locks")
-			elseif lockCost > state.lockTokens then
-				-- the Nest keeps its locks but lays plain eggs until the balance covers one egg's locks
-				setText(locksLabel, ("Locks paused: need %d tokens (have %d)"):format(lockCost, state.lockTokens))
-				if locksLabel then
-					locksLabel.TextColor3 = LOCKS_PAUSED_COLOR
-				end
-			else
-				setText(locksLabel, "Locked: " .. table.concat(lockTexts, ", "))
-			end
-
 			local clearButton = filled:FindFirstChild("ClearButton")
 			if clearButton then
 				clearButton.Activated:Connect(function()
@@ -301,7 +270,6 @@ function ClientNestManager.refreshHud(self: ClientNestManager)
 	end
 
 	local state = self.state
-	setText(self.lockTokensLabel, ("Lock Tokens: %d"):format(if state then state.lockTokens else 0))
 
 	-- the Buy Nest button shows only while there is a Nest left to buy
 	local buyButton = self.buyNestButton
@@ -330,79 +298,15 @@ end
 
 -- ===== the picker =====
 
-function ClientNestManager.refreshPickerLocks(self: ClientNestManager)
+function ClientNestManager.refreshPickerHint(self: ClientNestManager)
 	local picker = self.picker
-	local lockList = if picker then picker:FindFirstChild("LockList") else nil
-	local lockTemplate = if lockList then lockList:FindFirstChild("LockTemplate") else nil
 	local hint = if picker then picker:FindFirstChild("Hint") else nil
-	local odds = clientHatchOdds:getOdds()
-	local state = self.state
-	if not lockList or not lockTemplate or not odds or not state then
-		return
-	end
-
-	clearGenerated(lockList, lockTemplate)
 	if #self.pickerSelected < 2 then
 		setText(hint, "Pick two bred dragons of the same tier")
-		return
-	end
-
-	local parentA, parentB = self.pickerSelected[1].genome, self.pickerSelected[2].genome
-	if parentA.tier ~= parentB.tier then
+	elseif self.pickerSelected[1].genome.tier ~= self.pickerSelected[2].genome.tier then
 		setText(hint, "They need the same tier")
-		return
-	end
-
-	local lockCount = 0
-	for _ in self.pickerLocks do
-		lockCount += 1
-	end
-	local cost = 0
-	for _, pieceId in self.pickerLocks do
-		local piece = odds.catalog.byId[pieceId]
-		cost += if piece then odds.config.lockTokenCost[piece.rarity] else 0
-	end
-	setText(hint, ("Locks %d of %d: %d Lock Tokens per egg"):format(lockCount, state.maxLocks, cost))
-
-	local order = 0
-	for _, part in HatchOdds.PARTS do
-		if part == "meshTexture" then
-			-- the spec locks appearance pieces; the texture is one, but its piece is only the body's rarity, so it stays out of the picker for now
-			continue
-		end
-		local seen: { [string]: boolean } = {}
-		for _, genome in { parentA, parentB } do
-			local pieceId = genome.pieces[part]
-			if pieceId and not seen[pieceId] then
-				seen[pieceId] = true
-				order += 1
-				local button = cloneTemplate(lockTemplate, lockList, "Lock" .. order)
-				button.LayoutOrder = order
-				local name, rarity = formatPiece(pieceId)
-				local label = button:FindFirstChild("Label") or button
-				local isChosen = self.pickerLocks[part] == pieceId
-				label.Text = ("%s%s: %s (%s, %d tokens)"):format(if isChosen then "[x] " else "", PART_LABELS[part] or part, name, rarity, odds.config.lockTokenCost[rarity] or 0)
-				label.TextColor3 = RARITY_COLORS[rarity] or label.TextColor3
-				button.Activated:Connect(function()
-					if self.pickerLocks[part] == pieceId then
-						self.pickerLocks[part] = nil
-					else
-						local others = 0
-						for otherPart in self.pickerLocks do
-							if otherPart ~= part then
-								others += 1
-							end
-						end
-						if others >= state.maxLocks then
-							setText(hint, ("At most %d locks"):format(state.maxLocks))
-							return
-						end
-						self.pickerLocks[part] = pieceId
-					end
-					self:refreshPickerLocks()
-				end)
-			end
-		end
+	else
+		setText(hint, "Ready: confirm to put them in the Nest")
 	end
 end
 
@@ -430,10 +334,8 @@ function ClientNestManager.refreshPickerDragons(self: ClientNestManager)
 			elseif #self.pickerSelected < 2 then
 				table.insert(self.pickerSelected, candidate)
 			end
-			-- a different pair means different pieces to lock
-			self.pickerLocks = {}
 			self:refreshPickerDragons()
-			self:refreshPickerLocks()
+			self:refreshPickerHint()
 		end)
 	end
 	if #self.pickerCandidates == 0 then
@@ -449,10 +351,9 @@ function ClientNestManager.openPicker(self: ClientNestManager, nestIndex: number
 	self.pickerNestIndex = nestIndex
 	self.pickerCandidates = findCandidates()
 	self.pickerSelected = {}
-	self.pickerLocks = {}
 	picker.Visible = true
 	self:refreshPickerDragons()
-	self:refreshPickerLocks()
+	self:refreshPickerHint()
 end
 
 function ClientNestManager.closePicker(self: ClientNestManager)
@@ -465,7 +366,7 @@ function ClientNestManager.confirmPicker(self: ClientNestManager)
 	if not nestIndex or #self.pickerSelected < 2 then
 		return
 	end
-	RemoteEvents.TryNestSet:FireServer(nestIndex, self.pickerSelected[1].itemId, self.pickerSelected[2].itemId, self.pickerLocks)
+	RemoteEvents.TryNestSet:FireServer(nestIndex, self.pickerSelected[1].itemId, self.pickerSelected[2].itemId)
 	self:closePicker()
 end
 
@@ -636,11 +537,10 @@ end
 
 -- In the main HUD ScreenGui, a NestsFrame holding a NestsButton (an optional child Alert, a label or frame, shows the number of waiting eggs).
 -- In StarterGui, a ScreenGui named Nests with ResetOnSpawn off and Enabled off:
---   Dialog, with CloseButton, LockTokensLabel, an optional BuyNestButton (with a Label; shown while a Nest can be bought) and
---     NestList (a list layout) holding the hidden NestTemplate: Title, EmptyLabel, PairButton, and FilledFrame with ParentA, ParentB, Locks,
+--   Dialog, with CloseButton, an optional BuyNestButton (with a Label; shown while a Nest can be bought) and
+--     NestList (a list layout) holding the hidden NestTemplate: Title, EmptyLabel, PairButton, and FilledFrame with ParentA, ParentB,
 --       Timer, ClearButton and EggList (a list layout) holding the hidden EggTemplate: Label, HatchButton and an optional Glow
---     Picker (hidden): DragonList holding the hidden DragonTemplate (Label, optional SelectedMark), LockList holding the hidden LockTemplate
---       (Label), Hint, ConfirmButton, CancelButton
+--     Picker (hidden): DragonList holding the hidden DragonTemplate (Label, optional SelectedMark), Hint, ConfirmButton, CancelButton
 --     Reveal (hidden): Banner, Subtitle, PieceList holding the hidden PieceTemplate (Label), Mutation, Size, Value, SellButton, KeepButton,
 --       CloseButton
 function ClientNestManager.setUpGui(self: ClientNestManager)
@@ -670,7 +570,6 @@ function ClientNestManager.setUpGui(self: ClientNestManager)
 	for _, hidden in {
 		nestTemplate:FindFirstChild("FilledFrame") and nestTemplate.FilledFrame:FindFirstChild("EggList") and nestTemplate.FilledFrame.EggList:FindFirstChild("EggTemplate"),
 		picker:FindFirstChild("DragonList") and picker.DragonList:FindFirstChild("DragonTemplate"),
-		picker:FindFirstChild("LockList") and picker.LockList:FindFirstChild("LockTemplate"),
 		reveal:FindFirstChild("PieceList") and reveal.PieceList:FindFirstChild("PieceTemplate"),
 	} do
 		if hidden then
@@ -684,7 +583,6 @@ function ClientNestManager.setUpGui(self: ClientNestManager)
 	self.nestTemplate = nestTemplate
 	self.picker = picker
 	self.reveal = reveal
-	self.lockTokensLabel = dialog:FindFirstChild("LockTokensLabel")
 	self.buyNestButton = dialog:FindFirstChild("BuyNestButton")
 	if self.buyNestButton then
 		self.buyNestButton.Activated:Connect(function()
@@ -766,13 +664,11 @@ function ClientNestManager.new(): ClientNestManager
 	self.picker = nil
 	self.reveal = nil
 	self.openButton = nil
-	self.lockTokensLabel = nil
 	self.buyNestButton = nil
 	self.isOverlayOpen = false
 	self.pickerNestIndex = nil
 	self.pickerCandidates = {}
 	self.pickerSelected = {}
-	self.pickerLocks = {}
 	self.revealToken = 0
 	self.revealed = nil
 	self.tickerDisconnect = nil

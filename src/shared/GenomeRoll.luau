@@ -1,6 +1,6 @@
 --!strict
 
--- The offspring roll: one weighted pick per part, the mutation slot, size, tier jump and locks.
+-- The offspring roll: one weighted pick per part, the mutation slot, size and tier jump.
 -- Pure: every function takes the HatchOdds.Odds and a Random, so the server rolls and the odds panel reads the same weights.
 
 local HatchOdds = require("./HatchOdds")
@@ -14,7 +14,6 @@ export type Weighted = { id: string, weight: number }
 export type RollParams = {
 	parentA: Genome.Genome,
 	parentB: Genome.Genome,
-	locks: { [HatchOdds.Part]: string }?, -- part -> the piece id to copy, which one of the parents must have
 	weather: HatchOdds.Weather?, -- the weather active when the egg is laid
 	traits: { string }?,
 	uuid: string,
@@ -137,34 +136,7 @@ function GenomeRoll.rollTier(odds: HatchOdds.Odds, tier: number, averageBand: Ha
 	return tier
 end
 
--- Lock Tokens charged per egg: each locked piece costs by its rarity
-function GenomeRoll.getLockCost(odds: HatchOdds.Odds, locks: { [HatchOdds.Part]: string }): number
-	local cost = 0
-	for _, id in locks do
-		local piece = odds.catalog.byId[id]
-		if piece then
-			cost += odds.config.lockTokenCost[piece.rarity]
-		end
-	end
-	return cost
-end
-
--- why these locks can't be used with these parents (a locked piece neither has, or too many); nil when they can
-function GenomeRoll.getLockProblem(odds: HatchOdds.Odds, parentA: Genome.Genome, parentB: Genome.Genome, locks: { [HatchOdds.Part]: string }): string?
-	local lockCount = 0
-	for part, id in locks do
-		lockCount += 1
-		if id ~= parentA.pieces[part] and id ~= parentB.pieces[part] then
-			return "locked piece is not from a parent: " .. part .. " " .. id
-		end
-	end
-	if lockCount > odds.config.maxLocks then
-		return "too many locks: " .. lockCount
-	end
-	return nil
-end
-
--- the parents of a same-tier pair give a baby; nil (after a warn) when the pair or the locks are invalid
+-- the parents of a same-tier pair give a baby; nil (after a warn) when the pair is invalid
 function GenomeRoll.rollGenome(odds: HatchOdds.Odds, params: RollParams, rng: Random): Genome.Genome?
 	local config = odds.config
 	local parentA, parentB = params.parentA, params.parentB
@@ -173,28 +145,16 @@ function GenomeRoll.rollGenome(odds: HatchOdds.Odds, params: RollParams, rng: Ra
 		return nil
 	end
 
-	local locks = params.locks or {}
-	local lockProblem = GenomeRoll.getLockProblem(odds, parentA, parentB, locks)
-	if lockProblem then
-		warn("GenomeRoll:", lockProblem)
-		return nil
-	end
-
 	local shares = GenomeRoll.mixShares(parentA.shares, parentB.shares)
 	local pieces: { [HatchOdds.Part]: string } = {}
 	for _, part in HatchOdds.PARTS do
-		local locked = locks[part]
-		if locked then
-			pieces[part] = locked
-		else
-			local weights = GenomeRoll.getPieceWeights(odds, part, shares, { parentA.pieces[part], parentB.pieces[part] })
-			local id = GenomeRoll.pick(weights, rng)
-			if not id then
-				warn("GenomeRoll: no piece can roll for", part)
-				return nil
-			end
-			pieces[part] = id
+		local weights = GenomeRoll.getPieceWeights(odds, part, shares, { parentA.pieces[part], parentB.pieces[part] })
+		local id = GenomeRoll.pick(weights, rng)
+		if not id then
+			warn("GenomeRoll: no piece can roll for", part)
+			return nil
 		end
+		pieces[part] = id
 	end
 
 	local mutationWeights = GenomeRoll.getMutationWeights(odds, shares, { parentA.mutation, parentB.mutation }, params.weather)

@@ -49,8 +49,6 @@ export type Config = {
 	pieces: { [Part]: { [Element]: { PieceRow } } },
 	pieceParentBuff: { [PieceRarity]: number }, -- by the piece's rarity, per parent that has the piece
 	pieceScore: { [PieceRarity]: number },
-	lockTokenCost: { [PieceRarity]: number },
-	maxLocks: number,
 	dragonBands: { Band }, -- ascending; a dragon's band is the highest one at or below its score
 	pureBonus: number,
 	tiers: { Tier },
@@ -161,7 +159,7 @@ function HatchOdds.validate(config: any): { string }
 		problem("HatchOdds: version must be a non-negative number")
 	end
 
-	for _, field in { "pieceParentBuff", "pieceScore", "lockTokenCost" } do
+	for _, field in { "pieceParentBuff", "pieceScore" } do
 		local map = config[field]
 		for _, rarity in PIECE_RARITIES do
 			if type(map) ~= "table" or not isFiniteNonNegative(map[rarity]) then
@@ -178,7 +176,7 @@ function HatchOdds.validate(config: any): { string }
 		end
 	end
 	for _, field in {
-		"maxLocks", "pureBonus", "visibleMin", "visibleSpan", "visibleSizeCap", "giantVisible", "sizeParentWeight", "sizeBase",
+		"pureBonus", "visibleMin", "visibleSpan", "visibleSizeCap", "giantVisible", "sizeParentWeight", "sizeBase",
 		"sizeJitterMin", "sizeJitterMax", "giantChance", "giantMult", "sizeMin", "sizeMax", "mutationTotal", "mutationParentBuff",
 		"weatherMutationBuff", "mutationWeightCap", "tierJumpTotal", "tierJumpBaseWeight", "layBoostFloor", "nestBaseCount", "nestMaxCount", "nestParentScale",
 	} do

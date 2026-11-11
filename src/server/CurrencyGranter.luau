@@ -13,7 +13,6 @@ local analyticsManager = require("./AnalyticsManager")
 local playerAttributesManager = require("./PlayerAttributesManager")
 
 local DIAMONDS_CURRENCY_NAME = "Diamonds"
-local LOCK_TOKENS_CURRENCY_NAME = "LockTokens"
 
 function CurrencyGranter.grantCoins(player: Player, amount: number, acquisitionSource: string)
 	playerAttributesManager:addWholeNumber(player, PlayerAttributeKeys.COINS, amount)
@@ -64,37 +63,6 @@ function CurrencyGranter.trySpendDiamonds(player: Player, amount: number, spendR
 
 	playerAttributesManager:subtractWholeNumber(player, PlayerAttributeKeys.DIAMONDS, amount)
 	analyticsManager:logSpendCurrency(player, amount, CurrencyGranter.getDiamonds(player), spendReason, DIAMONDS_CURRENCY_NAME)
-	return true
-end
-
-function CurrencyGranter.getLockTokens(player: Player): number
-	return playerAttributesManager:get(player, PlayerAttributeKeys.LOCK_TOKENS) or 0
-end
-
-function CurrencyGranter.grantLockTokens(player: Player, amount: number, acquisitionSource: string)
-	playerAttributesManager:addWholeNumber(player, PlayerAttributeKeys.LOCK_TOKENS, amount)
-	analyticsManager:logGainCurrency(
-		player,
-		amount,
-		CurrencyGranter.getLockTokens(player),
-		acquisitionSource,
-		LOCK_TOKENS_CURRENCY_NAME
-	)
-end
-
--- returns false and spends nothing when the amount is not a positive whole number or the player cannot afford it
-function CurrencyGranter.trySpendLockTokens(player: Player, amount: number, spendReason: string): boolean
-	if amount < 1 or amount ~= math.floor(amount) then
-		warn("CurrencyGranter: invalid lock token amount to spend", amount, spendReason)
-		return false
-	end
-
-	if CurrencyGranter.getLockTokens(player) < amount then
-		return false
-	end
-
-	playerAttributesManager:subtractWholeNumber(player, PlayerAttributeKeys.LOCK_TOKENS, amount)
-	analyticsManager:logSpendCurrency(player, amount, CurrencyGranter.getLockTokens(player), spendReason, LOCK_TOKENS_CURRENCY_NAME)
 	return true
 end
 
