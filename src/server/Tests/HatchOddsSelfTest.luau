@@ -10,6 +10,7 @@ local GenomeRoll = require("@game/ReplicatedStorage/Shared/GenomeRoll")
 local GenomeValue = require("@game/ReplicatedStorage/Shared/GenomeValue")
 local HatchOdds = require("@game/ReplicatedStorage/Shared/HatchOdds")
 local NestMath = require("@game/ReplicatedStorage/Shared/NestMath")
+local PairOdds = require("@game/ReplicatedStorage/Shared/PairOdds")
 
 local HatchOddsSpec = require("./HatchOddsSpec")
 
@@ -148,6 +149,47 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 	end
 	check("Mythic parents: baby Mythic", mythicChance, 0.031, 0.0005)
 	check("Mythic parents: baby Legendary", legendaryChance, 0.1865, 0.0005)
+
+	-- the pairing screen's numbers match the roll: same Mythic parents, read through PairOdds
+	local mythicA = makeGenome(odds, "fire", "common")
+	local mythicB = makeGenome(odds, "fire", "common")
+	mythicB.uuid = "mythic-b"
+	for _, part in HatchOdds.PARTS do
+		mythicA.pieces[part] = parentPieces[part][1]
+		mythicB.pieces[part] = parentPieces[part][1]
+	end
+	local pair = PairOdds.get(odds, mythicA, mythicB, nil)
+	if not pair then
+		table.insert(failures, "PairOdds returned nil for a valid pair")
+	else
+		check("PairOdds baby Mythic", pair.bands.mythic, 0.031, 0.0005)
+		check("PairOdds baby Legendary", pair.bands.legendary, 0.1865, 0.0005)
+		local bandTotal = 0
+		for _, chance in pair.bands do
+			bandTotal += chance
+		end
+		check("PairOdds band chances add up", bandTotal, 1, 0.0001)
+		for _, part in HatchOdds.PARTS do
+			local partTotal = 0
+			for _, entry in pair.parts[part] do
+				partTotal += entry.chance
+			end
+			check("PairOdds " .. part .. " chances add up", partTotal, 1, 0.0001)
+		end
+		local mutationTotal = 0
+		for _, entry in pair.mutations do
+			mutationTotal += entry.chance
+		end
+		check("PairOdds mutation chances add up", mutationTotal, 1, 0.0001)
+		if pair.sizeMin > pair.sizeMax or pair.sizeMax > pair.giantSizeMax then
+			table.insert(failures, "PairOdds size range is not ordered")
+		end
+	end
+	local wrongTier = table.clone(mythicB)
+	wrongTier.tier = 2
+	if PairOdds.get(odds, mythicA, wrongTier, nil) ~= nil then
+		table.insert(failures, "PairOdds accepted parents of different tiers")
+	end
 
 	-- spec "Rarity and value": the average fresh hatch scores about 6.4
 	local mean = 0

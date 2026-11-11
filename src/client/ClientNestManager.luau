@@ -16,6 +16,7 @@ local RemoteEvents: any = ReplicatedStorage:WaitForChild("RemoteEvents")
 local Attributes = require("@game/ReplicatedStorage/Shared/Attributes")
 local GenomeValue = require("@game/ReplicatedStorage/Shared/GenomeValue")
 local HatchOdds = require("@game/ReplicatedStorage/Shared/HatchOdds")
+local PairOdds = require("@game/ReplicatedStorage/Shared/PairOdds")
 local Tags = require("@game/ReplicatedStorage/Shared/Tags")
 
 local clientHatchOdds = require("./ClientHatchOdds")
@@ -298,6 +299,97 @@ end
 
 -- ===== the picker =====
 
+-- 0.0312 as "3.1%"; chances too small to show are "<0.1%", with the "<" escaped because the text is rich text
+local function formatPercent(chance: number): string
+	if chance > 0 and chance < 0.001 then
+		return "&lt;0.1%"
+	end
+	return ("%.1f%%"):format(chance * 100)
+end
+
+local function capitalize(text: string): string
+	return text:sub(1, 1):upper() .. text:sub(2)
+end
+
+local function colorText(text: string, rarity: string): string
+	local color = RARITY_COLORS[rarity] or Color3.new(1, 1, 1)
+	return ('<font color="#%s">%s</font>'):format(color:ToHex(), text)
+end
+
+-- the lines of the pairing screen's odds panel: the baby's mix, rarity, value, size, then every part's and the mutation's chances
+local function buildOddsLines(odds: HatchOdds.Odds, result: PairOdds.Result): { string }
+	local lines: { string } = {}
+
+	local mix = {}
+	for _, element in HatchOdds.ELEMENTS do
+		local share = result.shares[element] or 0
+		if share > 0 then
+			table.insert(mix, ("%s %d%%"):format(capitalize(element), math.floor(share * 100 + 0.5)))
+		end
+	end
+	table.insert(lines, "<b>Mix</b>: " .. table.concat(mix, ", "))
+
+	local bands = {}
+	for _, band in HatchOdds.DRAGON_BANDS do
+		local chance = result.bands[band] or 0
+		if chance > 0 then
+			table.insert(bands, colorText(("%s %s"):format(capitalize(band), formatPercent(chance)), band))
+		end
+	end
+	table.insert(lines, "<b>Rarity</b>: " .. table.concat(bands, "  "))
+
+	table.insert(lines, ("<b>About</b> %s Gold  |  <b>Size</b> %.2f to %.2f (%s Giant, up to %.2f)"):format(
+		formatNumber(result.expectedValue),
+		result.sizeMin,
+		result.sizeMax,
+		formatPercent(result.giantChance),
+		result.giantSizeMax
+	))
+	table.insert(lines, ("<b>Tier jump</b>: %s  |  <b>An egg every</b> %s"):format(formatPercent(result.tierJumpChance), formatDuration(result.layTimeSec)))
+
+	for _, part in HatchOdds.PARTS do
+		local entries = {}
+		for _, entry in result.parts[part] do
+			local name, rarity = formatPiece(entry.id)
+			table.insert(entries, colorText(("%s %s"):format(name, formatPercent(entry.chance)), rarity))
+		end
+		table.insert(lines, ("<b>%s</b>: %s"):format(PART_LABELS[part] or part, table.concat(entries, "  |  ")))
+	end
+
+	local mutations = {}
+	for _, entry in result.mutations do
+		table.insert(mutations, ("%s %s"):format(capitalize(entry.id), formatPercent(entry.chance)))
+	end
+	table.insert(lines, "<b>Mutation</b>: " .. table.concat(mutations, "  |  "))
+	return lines
+end
+
+-- fills the odds panel for the two picked dragons, or empties it
+function ClientNestManager.refreshPickerOdds(self: ClientNestManager)
+	local picker = self.picker
+	local oddsList = if picker then picker:FindFirstChild("OddsList") else nil
+	local template = if oddsList then oddsList:FindFirstChild("OddsTemplate") else nil
+	if not oddsList or not template then
+		return
+	end
+	clearGenerated(oddsList, template)
+
+	local odds = clientHatchOdds:getOdds()
+	if not odds or #self.pickerSelected < 2 then
+		return
+	end
+	local result = PairOdds.get(odds, self.pickerSelected[1].genome, self.pickerSelected[2].genome, nil)
+	if not result then
+		return
+	end
+	for order, line in buildOddsLines(odds, result) do
+		local row = cloneTemplate(template, oddsList, "Odds" .. order)
+		row.LayoutOrder = order
+		row.RichText = true
+		row.Text = line
+	end
+end
+
 function ClientNestManager.refreshPickerHint(self: ClientNestManager)
 	local picker = self.picker
 	local hint = if picker then picker:FindFirstChild("Hint") else nil
@@ -306,8 +398,9 @@ function ClientNestManager.refreshPickerHint(self: ClientNestManager)
 	elseif self.pickerSelected[1].genome.tier ~= self.pickerSelected[2].genome.tier then
 		setText(hint, "They need the same tier")
 	else
-		setText(hint, "Ready: confirm to put them in the Nest")
+		setText(hint, "These are the odds for every egg. Confirm to put them in the Nest")
 	end
+	self:refreshPickerOdds()
 end
 
 function ClientNestManager.refreshPickerDragons(self: ClientNestManager)
@@ -540,7 +633,7 @@ end
 --   Dialog, with CloseButton, an optional BuyNestButton (with a Label; shown while a Nest can be bought) and
 --     NestList (a list layout) holding the hidden NestTemplate: Title, EmptyLabel, PairButton, and FilledFrame with ParentA, ParentB,
 --       Timer, ClearButton and EggList (a list layout) holding the hidden EggTemplate: Label, HatchButton and an optional Glow
---     Picker (hidden): DragonList holding the hidden DragonTemplate (Label, optional SelectedMark), Hint, ConfirmButton, CancelButton
+--     Picker (hidden): DragonList holding the hidden DragonTemplate (Label, optional SelectedMark), OddsList holding the hidden OddsTemplate (a rich text label), Hint, ConfirmButton, CancelButton
 --     Reveal (hidden): Banner, Subtitle, PieceList holding the hidden PieceTemplate (Label), Mutation, Size, Value, SellButton, KeepButton,
 --       CloseButton
 function ClientNestManager.setUpGui(self: ClientNestManager)
@@ -570,6 +663,7 @@ function ClientNestManager.setUpGui(self: ClientNestManager)
 	for _, hidden in {
 		nestTemplate:FindFirstChild("FilledFrame") and nestTemplate.FilledFrame:FindFirstChild("EggList") and nestTemplate.FilledFrame.EggList:FindFirstChild("EggTemplate"),
 		picker:FindFirstChild("DragonList") and picker.DragonList:FindFirstChild("DragonTemplate"),
+		picker:FindFirstChild("OddsList") and picker.OddsList:FindFirstChild("OddsTemplate"),
 		reveal:FindFirstChild("PieceList") and reveal.PieceList:FindFirstChild("PieceTemplate"),
 	} do
 		if hidden then
