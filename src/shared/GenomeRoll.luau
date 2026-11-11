@@ -145,6 +145,9 @@ function GenomeRoll.rollGenome(odds: HatchOdds.Odds, params: RollParams, rng: Ra
 		return nil
 	end
 
+	Genome.fillLineage(parentA)
+	Genome.fillLineage(parentB)
+
 	local shares = GenomeRoll.mixShares(parentA.shares, parentB.shares)
 	local pieces: { [HatchOdds.Part]: string } = {}
 	for _, part in HatchOdds.PARTS do
@@ -174,13 +177,27 @@ function GenomeRoll.rollGenome(odds: HatchOdds.Odds, params: RollParams, rng: Ra
 		mutation = mutation,
 		traits = table.clone(params.traits or {}),
 		parents = { parentA.uuid, parentB.uuid },
+		origin = "bred",
+		generation = math.max(parentA.generation, parentB.generation) + 1,
+		ancestry = {
+			Genome.snapshot(parentA, Genome.LINEAGE_GENERATIONS),
+			Genome.snapshot(parentB, Genome.LINEAGE_GENERATIONS),
+		},
 		bornAt = params.bornAt,
 		oddsVersion = config.version,
 	}
 end
 
 -- a dragon with no parents (Market stock, dev grants): the same per-part roll with no parent buff, no weather and no tier jump
-function GenomeRoll.rollFresh(odds: HatchOdds.Odds, shares: Genome.Shares, tier: number, uuid: string, bornAt: number, rng: Random): Genome.Genome?
+function GenomeRoll.rollFresh(
+	odds: HatchOdds.Odds,
+	shares: Genome.Shares,
+	tier: number,
+	uuid: string,
+	bornAt: number,
+	origin: Genome.Origin,
+	rng: Random
+): Genome.Genome?
 	local pieces: { [HatchOdds.Part]: string } = {}
 	for _, part in HatchOdds.PARTS do
 		local id = GenomeRoll.pick(GenomeRoll.getPieceWeights(odds, part, shares, {}), rng)
@@ -205,6 +222,9 @@ function GenomeRoll.rollFresh(odds: HatchOdds.Odds, shares: Genome.Shares, tier:
 		mutation = mutation,
 		traits = {},
 		parents = {},
+		origin = origin,
+		generation = 0,
+		ancestry = {},
 		bornAt = bornAt,
 		oddsVersion = odds.config.version,
 	}

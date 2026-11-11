@@ -411,7 +411,7 @@ function ClientDevTools.init(self: ClientDevTools, devToolSettings: any)
 			if Iris.Button({ "Add a Nest slot" }).clicked() then
 				RemoteEvents.TryDevTool:FireServer("nestAddSlot")
 			end
-			if Iris.Button({ "Reset Nests + tokens" }).clicked() then
+			if Iris.Button({ "Reset Nests" }).clicked() then
 				RemoteEvents.TryDevTool:FireServer("resetNests")
 			end
 

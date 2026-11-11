@@ -58,6 +58,9 @@ local function makeGenome(odds: HatchOdds.Odds, element: HatchOdds.Element, rari
 		mutation = "normal",
 		traits = {},
 		parents = {},
+		origin = "market",
+		generation = 0,
+		ancestry = {},
 		bornAt = 0,
 		oddsVersion = odds.config.version,
 	}
@@ -316,14 +319,49 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 		table.insert(failures, "NestMath.create accepted parents of different tiers")
 	end
 
+	-- lineage: a baby carries frozen snapshots of its parents, which carry theirs, 3 generations deep and no deeper
+	local line: Genome.Genome = makeGenome(odds, "fire", "common")
+	for generation = 1, 4 do
+		local mate = makeGenome(odds, "fire", "common")
+		mate.uuid = "mate-" .. generation
+		local child = GenomeRoll.rollGenome(odds, { parentA = line, parentB = mate, uuid = "line-" .. generation, bornAt = 0 }, rng)
+		if not child then
+			table.insert(failures, "lineage roll returned nil")
+			break
+		end
+		child.tier = 1
+		check("lineage generation " .. generation, child.generation, generation, 0)
+		check("lineage parents " .. generation, #child.ancestry, 2, 0)
+		line = child
+	end
+	local depth, node = 0, line.ancestry[1]
+	while node do
+		depth += 1
+		node = node.ancestry[1]
+	end
+	check("lineage depth is capped", depth, Genome.LINEAGE_GENERATIONS, 0)
+	local frozen = Genome.snapshot(line, 1)
+	local wingsBefore = line.pieces.wings
+	line.pieces.wings = "changed"
+	if frozen.pieces.wings ~= wingsBefore then
+		table.insert(failures, "a snapshot changed with its dragon")
+	end
+	line.pieces.wings = wingsBefore
+	check("snapshot of one level has no ancestors", #frozen.ancestry, 0, 0)
+
 	-- a fresh roll has no parents, keeps its mix and tier, and only rolls pieces of the elements it has
-	local fresh = GenomeRoll.rollFresh(odds, { fire = 0.5, water = 0.5, nature = 0 }, 4, "00000000-1111-2222-3333-444444444444", 0, rng)
+	local fresh = GenomeRoll.rollFresh(odds, { fire = 0.5, water = 0.5, nature = 0 }, 4, "00000000-1111-2222-3333-444444444444", 0, "market", rng)
 	if not fresh then
 		table.insert(failures, "rollFresh returned nil")
 	else
 		check("fresh Fire share", fresh.shares.fire, 0.5, 0.0001)
 		check("fresh tier", fresh.tier, 4, 0)
 		check("fresh parents", #fresh.parents, 0, 0)
+		check("fresh generation", fresh.generation, 0, 0)
+		check("fresh ancestry", #fresh.ancestry, 0, 0)
+		if fresh.origin ~= "market" then
+			table.insert(failures, "fresh origin was " .. fresh.origin)
+		end
 		for _, part in HatchOdds.PARTS do
 			local piece = odds.catalog.byId[fresh.pieces[part]]
 			if not piece or piece.element == "nature" then

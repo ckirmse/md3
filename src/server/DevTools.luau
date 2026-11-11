@@ -1105,7 +1105,7 @@ function DevTools.grantGenomeDragon(self: DevTools, player: Player, element: any
 		return
 	end
 
-	local genome = GenomeRoll.rollFresh(odds, shares, tier, HttpService:GenerateGUID(false), os.time(), Random.new())
+	local genome = GenomeRoll.rollFresh(odds, shares, tier, HttpService:GenerateGUID(false), os.time(), "dev", Random.new())
 	if not genome then
 		return
 	end
@@ -1227,6 +1227,14 @@ function DevTools.nestDump(self: DevTools, player: Player)
 	end
 end
 
+-- one line per ancestor, indented by generation; genomes saved before lineage have none
+local function printAncestry(ancestry: any, indent: string)
+	for _, ancestor in ancestry or {} do
+		print(indent, ancestor.code, "gen", ancestor.generation, ancestor.origin, "tier", ancestor.tier, "wings", ancestor.pieces.wings)
+		printAncestry(ancestor.ancestry, indent .. "  ")
+	end
+end
+
 function DevTools.dumpGenomeDragons(self: DevTools, player: Player)
 	local odds = hatchOddsManager:getOdds()
 	if not odds then
@@ -1274,6 +1282,9 @@ function DevTools.dumpGenomeDragons(self: DevTools, player: Player)
 			dragon:getSellValue()
 		)
 		print("   ", table.concat(pieceIds, ", "))
+		local lineage: any = genome
+		print("   ", "lineage:", lineage.origin or "(old record)", "generation", lineage.generation or "-", "parents", #genome.parents)
+		printAncestry(lineage.ancestry, "     ")
 	end
 end
 

@@ -9,7 +9,7 @@
 -- The Nest count is the config's nestBaseCount plus the Nests bought with Gold (nestGoldPrices, in order) and the bonus slots from other
 -- sources, up to nestMaxCount; a Nest that holds dragons is never hidden if the count later drops.
 -- As of 2026-november-10 not built: weather boosts and traits on waiting eggs, Incubators,
--- the Gene Book and gamepass Nests (the bonus slot is their hook), and the grow-up wait before kept dragons can breed.
+-- the Gene Book and gamepass Nests (the bonus slot is their hook).
 local NestManager = {}
 NestManager.__index = NestManager
 
