@@ -20,6 +20,22 @@ function CurrencyGranter.grantCoins(player: Player, amount: number, acquisitionS
 	analyticsManager:logGainCurrency(player, amount, playerAttributesManager:get(player, PlayerAttributeKeys.COINS), acquisitionSource)
 end
 
+-- returns false and spends nothing when the amount is not a positive whole number or the player cannot afford it
+function CurrencyGranter.trySpendCoins(player: Player, amount: number, spendReason: string): boolean
+	if amount < 1 or amount ~= math.floor(amount) then
+		warn("CurrencyGranter: invalid coin amount to spend", amount, spendReason)
+		return false
+	end
+
+	if (playerAttributesManager:get(player, PlayerAttributeKeys.COINS) or 0) < amount then
+		return false
+	end
+
+	playerAttributesManager:subtractWholeNumber(player, PlayerAttributeKeys.COINS, amount)
+	analyticsManager:logSpendCurrency(player, amount, playerAttributesManager:get(player, PlayerAttributeKeys.COINS), spendReason)
+	return true
+end
+
 function CurrencyGranter.getDiamonds(player: Player): number
 	return playerAttributesManager:get(player, PlayerAttributeKeys.DIAMONDS) or 0
 end

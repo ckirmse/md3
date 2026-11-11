@@ -124,6 +124,8 @@ type PlayerDataFields = {
 	lastIndexRefreshTime: number,
 	hasBackfilledBlueprintIndex: boolean,
 	nests: any, -- { [string nest index]: NestMath.Nest }, the Hatch Dragons Nests; string keys so the save has no holes
+	nestGoldPurchases: number, -- Nests bought with Gold, which sets the price of the next
+	nestBonusSlots: number, -- Nests from other sources (Gene Book milestone, gamepass), which are not bought with Gold
 }
 
 export type PlayerData = typeof(setmetatable({} :: PlayerDataFields, PlayerData))
@@ -1206,9 +1208,27 @@ function PlayerData.getNests(self: PlayerData): any
 	return self.nests
 end
 
--- dev only: forgets every Nest with its parents and eggs
+function PlayerData.getNestGoldPurchases(self: PlayerData): number
+	return self.nestGoldPurchases
+end
+
+function PlayerData.addNestGoldPurchase(self: PlayerData)
+	self.nestGoldPurchases += 1
+end
+
+function PlayerData.getNestBonusSlots(self: PlayerData): number
+	return self.nestBonusSlots
+end
+
+function PlayerData.addNestBonusSlot(self: PlayerData)
+	self.nestBonusSlots += 1
+end
+
+-- dev only: forgets every Nest with its parents and eggs, and the extra Nests gained
 function PlayerData.resetNests(self: PlayerData)
 	self.nests = {}
+	self.nestGoldPurchases = 0
+	self.nestBonusSlots = 0
 end
 
 function PlayerData.getEggSlots(self: PlayerData): any
@@ -1842,6 +1862,8 @@ function PlayerData.loadSaveData(self: PlayerData, saveData: any)
 	self:updateVanityStateVisuals()
 
 	self.nests = if saveData and type(saveData.nests) == "table" then saveData.nests else {}
+	self.nestGoldPurchases = if saveData and type(saveData.nestGoldPurchases) == "number" then saveData.nestGoldPurchases else 0
+	self.nestBonusSlots = if saveData and type(saveData.nestBonusSlots) == "number" then saveData.nestBonusSlots else 0
 
 	local vanityComponentStatesSaveData = saveData and saveData.vanityComponentStates or nil
 	if vanityComponentStatesSaveData then
@@ -2633,6 +2655,8 @@ function PlayerData.getSaveData(self: PlayerData): any
 	saveData.plotLuckLevel = self.plotLuckLevel
 	saveData.rebirthLevel = self.rebirthLevel
 	saveData.nests = self.nests
+	saveData.nestGoldPurchases = self.nestGoldPurchases
+	saveData.nestBonusSlots = self.nestBonusSlots
 
 	return saveData
 end
@@ -3629,6 +3653,8 @@ function PlayerData.new(player: Player?): PlayerData
 
 	self.eggSlots = {}
 	self.nests = {}
+	self.nestGoldPurchases = 0
+	self.nestBonusSlots = 0
 	self.totalDragonIncome = 0
 
 	self.purchasedSlotUnlocks = {}

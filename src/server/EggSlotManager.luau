@@ -244,7 +244,9 @@ function EggSlotManager.collectEggSlotMarkers(self: EggSlotManager)
 	end
 
 	local templateParent = GameAssets:FindFirstChild(SLOT_TEMPLATE_PARENT_NAME)
-	local slotTemplate = templateParent and templateParent:FindFirstChild(SLOT_TEMPLATE_NAME)
+	-- the template is in GameAssets.Land, or in the Nest folder inside it (Land.Nest) with the Nest models
+	local nestFolder = if templateParent then templateParent:FindFirstChild("Nest") else nil
+	local slotTemplate = if templateParent then templateParent:FindFirstChild(SLOT_TEMPLATE_NAME) or (if nestFolder then nestFolder:FindFirstChild(SLOT_TEMPLATE_NAME) else nil) else nil
 	if not slotTemplate or not slotTemplate:FindFirstChild("Anchor") then
 		warn(`EggSlotManager: GameAssets.{SLOT_TEMPLATE_PARENT_NAME}.{SLOT_TEMPLATE_NAME} with an Anchor part is missing, keeping the authored egg slots`)
 	else

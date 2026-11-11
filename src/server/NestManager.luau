@@ -6,8 +6,10 @@
 -- or keeps it, which creates a ShadowDragon carrying the genome. Eggs laid while offline are caught up when the player joins.
 -- The client talks through TryNestSet, TryNestClear, TryNestHatch and TryNestDecide (created in Studio) and hears NotifyNests (the whole state,
 -- pushed after every change and every laid egg) and NotifyNestReveal. Eggs are named by their genome uuid, so a stale click can't hit another egg.
+-- The Nest count is the config's nestBaseCount plus the Nests bought with Gold (nestGoldPrices, in order) and the bonus slots from other
+-- sources, up to nestMaxCount; a Nest that holds dragons is never hidden if the count later drops.
 -- As of 2026-november-10 not built: weather boosts and traits on waiting eggs, the first-Rare-piece and Gene Book lock unlocks, Incubators,
--- more than 2 Nests, and the grow-up wait before kept dragons can breed.
+-- the Gene Book and gamepass Nests (the bonus slot is their hook), and the grow-up wait before kept dragons can breed.
 local NestManager = {}
 NestManager.__index = NestManager
 
@@ -28,9 +30,9 @@ local NestMath = require("@game/ReplicatedStorage/Shared/NestMath")
 
 local CurrencyGranter = require("./CurrencyGranter")
 local hatchOddsManager = require("./HatchOddsManager")
+local nestWorldManager = require("./NestWorldManager")
+local plotsManager = require("./PlotsManager")
 
--- the spec's personal Nests start at 2 and grow to 6 with Gold, a Gene Book milestone and a gamepass
-local NEST_COUNT = 2
 local TICK_SEC = 1
 
 type NestManagerFields = {
@@ -39,8 +41,30 @@ type NestManagerFields = {
 
 export type NestManager = typeof(setmetatable({} :: NestManagerFields, NestManager))
 
-local function isNestIndex(nestIndex: any): boolean
-	return type(nestIndex) == "number" and nestIndex == math.floor(nestIndex) and nestIndex >= 1 and nestIndex <= NEST_COUNT
+-- the Nest slots the player has: the base count plus the Gold and bonus Nests, never below the highest Nest that holds dragons
+local function getNestCount(playerData: any): number
+	local odds = hatchOddsManager:getOdds()
+	if not odds then
+		return 0
+	end
+	local config = odds.config
+	local count = math.min(config.nestBaseCount + playerData:getNestGoldPurchases() + playerData:getNestBonusSlots(), config.nestMaxCount)
+	for key in playerData:getNests() do
+		count = math.max(count, tonumber(key) or 0)
+	end
+	return count
+end
+
+local function isNestIndex(playerData: any, nestIndex: any): boolean
+	return type(nestIndex) == "number" and nestIndex == math.floor(nestIndex) and nestIndex >= 1 and nestIndex <= getNestCount(playerData)
+end
+
+-- the Gold price of the next Nest the player can buy, nil when there is none left (the maximum, or no price set for it)
+local function getNextNestPrice(odds: HatchOdds.Odds, playerData: any): number?
+	if getNestCount(playerData) >= odds.config.nestMaxCount then
+		return nil
+	end
+	return odds.config.nestGoldPrices[playerData:getNestGoldPurchases() + 1]
 end
 
 local function makeUuid(): string
@@ -118,7 +142,7 @@ function NestManager.getClientData(self: NestManager, player: Player, playerData
 	end
 
 	local nests = {}
-	for nestIndex = 1, NEST_COUNT do
+	for nestIndex = 1, getNestCount(playerData) do
 		local nest = getNest(playerData, nestIndex)
 		if not nest then
 			table.insert(nests, { isEmpty = true })
@@ -142,12 +166,18 @@ function NestManager.getClientData(self: NestManager, player: Player, playerData
 	return {
 		lockTokens = CurrencyGranter.getLockTokens(player),
 		maxLocks = odds.config.maxLocks,
+		nextNestPrice = getNextNestPrice(odds, playerData),
+		plotIndex = plotsManager:getPlotIndexByUserId(player.UserId),
 		nests = nests,
 	}
 end
 
 function NestManager.pushNests(self: NestManager, player: Player)
 	local playerData = gameController:getPlayerData(player)
+	if playerData then
+		-- the Nest models on the plot follow the count; this does nothing when they are already up to date
+		nestWorldManager:syncNestModels(player, getNestCount(playerData))
+	end
 	local data = if playerData then self:getClientData(player, playerData) else nil
 	if data then
 		fireRemote("NotifyNests", player, data)
@@ -162,7 +192,7 @@ function NestManager.setNest(self: NestManager, player: Player, nestIndex: any, 
 	if not odds or not playerData then
 		return false, "Nests are not available"
 	end
-	if not isNestIndex(nestIndex) then
+	if not isNestIndex(playerData, nestIndex) then
 		return false, "That Nest does not exist"
 	end
 	if getNest(playerData, nestIndex) then
@@ -219,7 +249,7 @@ end
 -- Gives the two parents back to the player and empties the Nest. A Nest with eggs waiting stays until they are hatched.
 function NestManager.clearNest(self: NestManager, player: Player, nestIndex: any): (boolean, string)
 	local playerData = gameController:getPlayerData(player)
-	if not playerData or not isNestIndex(nestIndex) then
+	if not playerData or not isNestIndex(playerData, nestIndex) then
 		return false, "That Nest does not exist"
 	end
 	local nest = getNest(playerData, nestIndex)
@@ -249,7 +279,7 @@ end
 function NestManager.getReveal(self: NestManager, player: Player, nestIndex: any, eggRef: any): any?
 	local odds = hatchOddsManager:getOdds()
 	local playerData = gameController:getPlayerData(player)
-	if not odds or not playerData or not isNestIndex(nestIndex) then
+	if not odds or not playerData or not isNestIndex(playerData, nestIndex) then
 		return nil
 	end
 	local nest = getNest(playerData, nestIndex)
@@ -278,7 +308,7 @@ function NestManager.hatchEgg(self: NestManager, player: Player, nestIndex: any,
 	if not odds or not playerData then
 		return false, "Nests are not available"
 	end
-	if not isNestIndex(nestIndex) then
+	if not isNestIndex(playerData, nestIndex) then
 		return false, "That egg does not exist"
 	end
 	if decision ~= "sell" and decision ~= "keep" then
@@ -380,8 +410,45 @@ function NestManager.notifyAddPlayer(self: NestManager, player: Player, playerDa
 	self:pushNests(player)
 end
 
-function NestManager.getNestCount(self: NestManager): number
-	return NEST_COUNT
+function NestManager.getNestCount(self: NestManager, playerData: any): number
+	return getNestCount(playerData)
+end
+
+-- Buys the next Nest with Gold at the config's price. Returns whether it worked and a short message.
+function NestManager.buyNest(self: NestManager, player: Player): (boolean, string)
+	local odds = hatchOddsManager:getOdds()
+	local playerData = gameController:getPlayerData(player)
+	if not odds or not playerData then
+		return false, "Nests are not available"
+	end
+
+	local price = getNextNestPrice(odds, playerData)
+	if not price then
+		return false, "There is no Nest left to buy"
+	end
+	-- a price of 0 is a free Nest
+	if price > 0 and not CurrencyGranter.trySpendCoins(player, price, "buyNest") then
+		return false, string.format("You need %d coins for the next Nest", price)
+	end
+	playerData:addNestGoldPurchase()
+	return true, "You bought a new Nest"
+end
+
+function NestManager.tryBuy(self: NestManager, player: Player)
+	local _, message = self:buyNest(player)
+	gameController:sendSystemMessageToPlayer(player, message)
+	self:pushNests(player)
+end
+
+-- dev only: one more Nest slot, as if gained from a Gene Book milestone or a gamepass, up to the maximum
+function NestManager.devAddSlot(self: NestManager, player: Player)
+	local odds = hatchOddsManager:getOdds()
+	local playerData = gameController:getPlayerData(player)
+	if not odds or not playerData or getNestCount(playerData) >= odds.config.nestMaxCount then
+		return
+	end
+	playerData:addNestBonusSlot()
+	self:pushNests(player)
 end
 
 function NestManager.init(self: NestManager)

@@ -33,6 +33,7 @@ local gameDataVerifier = require("./GameDataVerifier")
 local Gem = require("./Gem")
 local hatchOddsManager = require("./HatchOddsManager")
 local nestManager = require("./NestManager")
+local nestWorldManager = require("./NestWorldManager")
 local Crate = require("./Crate")
 local incomeManager = require("./IncomeManager")
 local indexManager = require("./IndexManager")
@@ -1718,6 +1719,7 @@ function GameController.processPlayerRemove(self: GameController, player: Player
 	itemManager:notifyRemovePlayer(player)
 	plotsManager:notifyRemovePlayer(player)
 	eggSlotManager:notifyRemovePlayer(player)
+	nestWorldManager:notifyRemovePlayer(player)
 	incomeManager:notifyRemovePlayer(player)
 	radarManager:notifyRemovePlayer(player)
 	dealShopManager:notifyRemovePlayer(player)
@@ -1907,6 +1909,10 @@ end
 -- Hatch Dragons Nests: NestManager checks every argument, since they come from the client
 function GameController.tryNestSet(self: GameController, player: Player, nestIndex: any, itemIdA: any, itemIdB: any, locks: any): ()
 	nestManager:trySet(player, nestIndex, itemIdA, itemIdB, locks)
+end
+
+function GameController.tryNestBuy(self: GameController, player: Player): ()
+	nestManager:tryBuy(player)
 end
 
 function GameController.tryNestClear(self: GameController, player: Player, nestIndex: any): ()
@@ -3934,6 +3940,7 @@ function GameController.listenToRemoteEvents(self: GameController): ()
 	-- the Nest remotes are made in Studio; without one the Nests have no player-facing path, so warn instead of failing startup
 	for remoteName, funcName in {
 		TryNestSet = "tryNestSet",
+		TryNestBuy = "tryNestBuy",
 		TryNestClear = "tryNestClear",
 		TryNestHatch = "tryNestHatch",
 		TryNestDecide = "tryNestDecide",
@@ -4276,6 +4283,7 @@ function GameController.init(self: GameController): ()
 	islandManager:init()
 	scatterZoneManager:init()
 	eggSlotManager:init()
+	nestWorldManager:init()
 
 	processReceipt:init()
 	serverListener:init()

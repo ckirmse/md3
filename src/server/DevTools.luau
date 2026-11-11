@@ -1143,6 +1143,11 @@ function DevTools.resetNests(self: DevTools, player: Player)
 	nestManager:pushNests(player)
 end
 
+-- one more Nest slot, as if gained from a Gene Book milestone or a gamepass
+function DevTools.nestAddSlot(self: DevTools, player: Player)
+	nestManager:devAddSlot(player)
+end
+
 function DevTools.giveLockTokens(self: DevTools, player: Player, amount: any)
 	if type(amount) ~= "number" or amount ~= math.floor(amount) or amount < 1 or amount > 1000 then
 		warn("giveLockTokens: amount must be a whole number from 1 to 1000", amount)
@@ -1194,7 +1199,7 @@ function DevTools.nestDump(self: DevTools, player: Player)
 
 	print("Nests for", player.Name, "| lock tokens", CurrencyGranter.getLockTokens(player))
 	local now = workspace:GetServerTimeNow()
-	for nestIndex = 1, nestManager:getNestCount() do
+	for nestIndex = 1, nestManager:getNestCount(playerData) do
 		local nest = playerData:getNests()[tostring(nestIndex)]
 		if not nest then
 			print(" ", "Nest", nestIndex, "empty")

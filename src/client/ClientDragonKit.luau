@@ -11,6 +11,7 @@ ClientDragonKit.__index = ClientDragonKit
 local httpService = game:GetService("HttpService")
 
 local Attributes = require("@game/ReplicatedStorage/Shared/Attributes")
+local GenomeItemName = require("@game/ReplicatedStorage/Shared/GenomeItemName")
 local GenomeLook = require("@game/ReplicatedStorage/Shared/GenomeLook")
 local utils = require("@game/ReplicatedStorage/Shared/utils")
 
@@ -18,6 +19,9 @@ local clientHatchOdds = require("./ClientHatchOdds")
 
 -- how ClientDragonManager poses the wings at rest: the left wing rotates by this about X, the right by 180 minus it
 local WING_REST_ANGLE = 90
+
+-- the rarity of the legacy model an item name ends with: Common has no suffix
+local RARITY_FROM_SUFFIX: { [string]: string } = { [""] = "Common", UC = "Uncommon", R = "Rare", E = "Epic" }
 
 type ClientDragonKitFields = {}
 
@@ -263,6 +267,42 @@ function ClientDragonKit.apply(self: ClientDragonKit, caster: any, genomeJson: s
 
 	caster:SetAttribute(Attributes.GENOME_BUILT, true)
 	return true
+end
+
+-- A still copy of the dragon a genome looks like, at its original size, for a Nest to show a parent. Nothing in it moves, collides or emits.
+-- Returns nil when the genome has no model.
+function ClientDragonKit.createDisplayModel(self: ClientDragonKit, genome: any): any?
+	local odds = clientHatchOdds:getOdds()
+	local itemName = if odds then GenomeItemName.get(odds, genome) else nil
+	if not itemName then
+		return nil
+	end
+
+	local color, suffix, level = itemName:match("^(%a+) ?(%a*) Dragon Level (%d+)$")
+	local rarity = RARITY_FROM_SUFFIX[suffix or ""]
+	if not (color and rarity and level) then
+		warn("ClientDragonKit: cannot read the model from the item name", itemName)
+		return nil
+	end
+
+	local template = utils.getGameAssetPathReference(("Dragons.%s.%s.Dragon%s%s%02d"):format(color, rarity, color, rarity, tonumber(level) :: number))
+	if not template or not template:IsA("Model") then
+		warn("ClientDragonKit: no dragon model for", itemName)
+		return nil
+	end
+
+	local model: any = template:Clone()
+	self:apply(model, httpService:JSONEncode(genome))
+	for _, descendant in model:GetDescendants() do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+			descendant.CanCollide = false
+			descendant.CanTouch = false
+		elseif descendant:IsA("ParticleEmitter") or descendant:IsA("Trail") or descendant:IsA("Beam") then
+			descendant.Enabled = false
+		end
+	end
+	return model
 end
 
 function ClientDragonKit.new(): ClientDragonKit

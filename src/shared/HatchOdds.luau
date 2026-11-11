@@ -77,6 +77,10 @@ export type Config = {
 	tierJumpBonus: { [DragonBand]: number },
 	layTimeMult: { [DragonBand]: number }, -- by the parents' average band
 	layBoostFloor: number,
+	nestBaseCount: number, -- the personal Nests every player starts with
+	nestMaxCount: number, -- the most personal Nests, however they were gained
+	nestGoldPrices: { number }, -- Gold for each Nest bought with Gold, in order
+	nestParentScale: number, -- how big the parents look on a Nest, 1 is their original size
 }
 
 -- Structural names: the code branches on these, so they stay out of the designer's table.
@@ -176,10 +180,35 @@ function HatchOdds.validate(config: any): { string }
 	for _, field in {
 		"maxLocks", "pureBonus", "visibleMin", "visibleSpan", "visibleSizeCap", "giantVisible", "sizeParentWeight", "sizeBase",
 		"sizeJitterMin", "sizeJitterMax", "giantChance", "giantMult", "sizeMin", "sizeMax", "mutationTotal", "mutationParentBuff",
-		"weatherMutationBuff", "mutationWeightCap", "tierJumpTotal", "tierJumpBaseWeight", "layBoostFloor",
+		"weatherMutationBuff", "mutationWeightCap", "tierJumpTotal", "tierJumpBaseWeight", "layBoostFloor", "nestBaseCount", "nestMaxCount", "nestParentScale",
 	} do
 		if not isFiniteNonNegative(config[field]) then
 			problem(("HatchOdds: %s must be a non-negative number"):format(field))
+		end
+	end
+
+	if isFiniteNonNegative(config.nestParentScale) and config.nestParentScale <= 0 then
+		problem("HatchOdds: nestParentScale must be above 0")
+	end
+
+	if isFiniteNonNegative(config.nestBaseCount) and isFiniteNonNegative(config.nestMaxCount) then
+		if config.nestBaseCount < 1 or config.nestBaseCount ~= math.floor(config.nestBaseCount) then
+			problem("HatchOdds: nestBaseCount must be a whole number of at least 1")
+		end
+		if config.nestMaxCount < config.nestBaseCount or config.nestMaxCount ~= math.floor(config.nestMaxCount) then
+			problem("HatchOdds: nestMaxCount must be a whole number, not below nestBaseCount")
+		end
+		if type(config.nestGoldPrices) ~= "table" then
+			problem("HatchOdds: nestGoldPrices must be a list of Gold prices")
+		else
+			for index, price in config.nestGoldPrices do
+				if not isFiniteNonNegative(price) then
+					problem(("HatchOdds: nestGoldPrices[%d] must be a non-negative number"):format(index))
+				end
+			end
+			if config.nestBaseCount + #config.nestGoldPrices > config.nestMaxCount then
+				problem("HatchOdds: nestBaseCount plus the Gold Nests is more than nestMaxCount")
+			end
 		end
 	end
 

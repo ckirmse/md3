@@ -19,6 +19,7 @@ local HatchOdds = require("@game/ReplicatedStorage/Shared/HatchOdds")
 local Tags = require("@game/ReplicatedStorage/Shared/Tags")
 
 local clientHatchOdds = require("./ClientHatchOdds")
+local clientNestWorldManager = require("./ClientNestWorldManager")
 local ClientTicker = require("./ClientTicker")
 local overlayTracker = require("./OverlayTracker")
 local Types = require("./Types")
@@ -54,6 +55,8 @@ local RARITY_COLORS: { [string]: Color3 } = {
 type NestsState = {
 	lockTokens: number,
 	maxLocks: number,
+	nextNestPrice: number?, -- the Gold price of the next Nest the player can buy, nil when there is none
+	plotIndex: number?, -- the player's plot, which the Nest models in the world are matched to
 	nests: { any }, -- one per slot: { isEmpty = true } or { parentA, parentB, locks, nextLayAt, layTimeSec, eggs }
 }
 
@@ -70,6 +73,7 @@ type ClientNestManagerFields = {
 	reveal: any?,
 	openButton: any?,
 	lockTokensLabel: any?,
+	buyNestButton: any?,
 	isOverlayOpen: boolean,
 	pickerNestIndex: number?,
 	pickerCandidates: { Candidate },
@@ -108,6 +112,16 @@ end
 
 local function describeGenome(genome: any): string
 	return ("%s  %s  (%s)"):format(genome.code, getBandName(genome), getTierName(genome))
+end
+
+-- 50000 as "50,000"
+local function formatNumber(value: number): string
+	local text = tostring(math.floor(value))
+	local replaced = 1
+	while replaced > 0 do
+		text, replaced = text:gsub("^(-?%d+)(%d%d%d)", "%1,%2")
+	end
+	return text
 end
 
 local function formatDuration(seconds: number): string
@@ -288,6 +302,16 @@ function ClientNestManager.refreshHud(self: ClientNestManager)
 
 	local state = self.state
 	setText(self.lockTokensLabel, ("Lock Tokens: %d"):format(if state then state.lockTokens else 0))
+
+	-- the Buy Nest button shows only while there is a Nest left to buy
+	local buyButton = self.buyNestButton
+	if buyButton then
+		local price = if state then state.nextNestPrice else nil
+		buyButton.Visible = price ~= nil
+		if price then
+			setText(buyButton:FindFirstChild("Label") or buyButton, ("Buy Nest (%s)"):format(formatNumber(price)))
+		end
+	end
 end
 
 -- the whole state: from the init data, and again after every change the server makes
@@ -301,6 +325,7 @@ function ClientNestManager.setData(self: ClientNestManager, data: any)
 	if self.isOverlayOpen then
 		self:rebuildNests()
 	end
+	clientNestWorldManager:setData(data)
 end
 
 -- ===== the picker =====
@@ -459,6 +484,11 @@ function ClientNestManager.showReveal(self: ClientNestManager, reveal: any)
 		return
 	end
 
+	-- an egg tapped in the world opens the screen first, which also clears any earlier reveal
+	if not self.isOverlayOpen then
+		self:openDialog()
+	end
+
 	local genome = reveal.genome
 	self.revealToken += 1
 	local token = self.revealToken
@@ -606,7 +636,7 @@ end
 
 -- In the main HUD ScreenGui, a NestsFrame holding a NestsButton (an optional child Alert, a label or frame, shows the number of waiting eggs).
 -- In StarterGui, a ScreenGui named Nests with ResetOnSpawn off and Enabled off:
---   Dialog, with CloseButton, LockTokensLabel and
+--   Dialog, with CloseButton, LockTokensLabel, an optional BuyNestButton (with a Label; shown while a Nest can be bought) and
 --     NestList (a list layout) holding the hidden NestTemplate: Title, EmptyLabel, PairButton, and FilledFrame with ParentA, ParentB, Locks,
 --       Timer, ClearButton and EggList (a list layout) holding the hidden EggTemplate: Label, HatchButton and an optional Glow
 --     Picker (hidden): DragonList holding the hidden DragonTemplate (Label, optional SelectedMark), LockList holding the hidden LockTemplate
@@ -655,6 +685,17 @@ function ClientNestManager.setUpGui(self: ClientNestManager)
 	self.picker = picker
 	self.reveal = reveal
 	self.lockTokensLabel = dialog:FindFirstChild("LockTokensLabel")
+	self.buyNestButton = dialog:FindFirstChild("BuyNestButton")
+	if self.buyNestButton then
+		self.buyNestButton.Activated:Connect(function()
+			local buyRemote = RemoteEvents:FindFirstChild("TryNestBuy")
+			if buyRemote then
+				buyRemote:FireServer()
+			else
+				warn("ClientNestManager: RemoteEvents.TryNestBuy is missing, so Nests can't be bought")
+			end
+		end)
+	end
 
 	local function connect(parent: any, name: string, callback: () -> ())
 		local button = parent:FindFirstChild(name)
@@ -695,6 +736,14 @@ function ClientNestManager.init(self: ClientNestManager)
 		return
 	end
 
+	-- a tap on a Nest in the world opens this screen
+	clientNestWorldManager:setOpenHandler(function()
+		if not self.isOverlayOpen then
+			self:openDialog()
+		end
+	end)
+	clientNestWorldManager:init()
+
 	notifyNests.OnClientEvent:Connect(function(data: any)
 		self:setData(data)
 	end)
@@ -718,6 +767,7 @@ function ClientNestManager.new(): ClientNestManager
 	self.reveal = nil
 	self.openButton = nil
 	self.lockTokensLabel = nil
+	self.buyNestButton = nil
 	self.isOverlayOpen = false
 	self.pickerNestIndex = nil
 	self.pickerCandidates = {}
