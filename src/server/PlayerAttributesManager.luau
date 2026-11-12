@@ -130,6 +130,7 @@ end
 function PlayerAttributesManager.resetAttributes(self: PlayerAttributesManager, player: Player)
 	self.attributes[player][PlayerAttributeKeys.COINS] = startData.coins
 	self.attributes[player][PlayerAttributeKeys.DIAMONDS] = 0
+	self.attributes[player][PlayerAttributeKeys.RESTYLE_TOKENS] = 0
 	self.attributes[player][PlayerAttributeKeys.TOTAL_DRAGON_INCOME] = 0
 	self.attributes[player][PlayerAttributeKeys.INCOME_PER_SECOND] = 0
 	self.attributes[player][PlayerAttributeKeys.IS_UNLOCKED_FIRE] = false
@@ -163,6 +164,11 @@ function PlayerAttributesManager.notifyAddPlayer(self: PlayerAttributesManager, 
 	self:resetAttributes(player)
 end
 
+-- saved attributes that no longer exist; they are not loaded, so they stop being saved and sent to the client
+local REMOVED_KEYS: { [string]: boolean } = {
+	lockTokens = true, -- Lock Tokens were removed with locks; Restyle Tokens are a new currency under a new key
+}
+
 local GEM_KEYS = {
 	PlayerAttributeKeys.GEMS_FIRE,
 	PlayerAttributeKeys.GEMS_NATURE,
@@ -174,7 +180,9 @@ function PlayerAttributesManager.loadSaveData(self: PlayerAttributesManager, pla
 	if playerAttributes then
 		-- maybe should only look for specific keys we still support? lots to think about
 		for key, value in playerAttributes do
-			self.attributes[player][key] = value
+			if not REMOVED_KEYS[key] then
+				self.attributes[player][key] = value
+			end
 		end
 	end
 

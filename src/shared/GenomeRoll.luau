@@ -178,6 +178,7 @@ function GenomeRoll.rollGenome(odds: HatchOdds.Odds, params: RollParams, rng: Ra
 		traits = table.clone(params.traits or {}),
 		parents = { parentA.uuid, parentB.uuid },
 		origin = "bred",
+		restyleCount = 0,
 		generation = math.max(parentA.generation, parentB.generation) + 1,
 		ancestry = {
 			Genome.snapshot(parentA, Genome.LINEAGE_GENERATIONS),
@@ -223,6 +224,7 @@ function GenomeRoll.rollFresh(
 		traits = {},
 		parents = {},
 		origin = origin,
+		restyleCount = 0,
 		generation = 0,
 		ancestry = {},
 		bornAt = bornAt,

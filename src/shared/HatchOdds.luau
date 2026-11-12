@@ -87,6 +87,7 @@ export type Config = {
 	weatherTraitMatchMult: number?, -- the chance is multiplied by this for an egg of the matching element
 	weatherTraitMatchShare: number?, -- the element share that counts as matching
 	weatherTraits: { [Weather]: WeatherTrait }?, -- weather -> trait; a weather with no entry gives no trait
+	restyleDiamondsPerToken: number?, -- Diamonds that pay for one Restyle Token (the token pack rate)
 }
 
 -- Structural names: the code branches on these, so they stay out of the designer's table.
@@ -110,6 +111,7 @@ local WEATHERS: { Weather } = { "rain", "heatwave", "bloomStorm", "thunderstorm"
 
 -- the values used while the Studio table leaves an optional Config field out (the spec's numbers)
 HatchOdds.DEFAULT_EGG_CAP = 3
+HatchOdds.DEFAULT_RESTYLE_DIAMONDS_PER_TOKEN = 5 -- placeholder; the spec sets no pack rate yet
 HatchOdds.DEFAULT_WEATHER_TRAIT_CHANCE_PER_MINUTE = 0.02
 HatchOdds.DEFAULT_WEATHER_TRAIT_MATCH_MULT = 2
 HatchOdds.DEFAULT_WEATHER_TRAIT_MATCH_SHARE = 0.5
@@ -258,6 +260,10 @@ function HatchOdds.validate(config: any): { string }
 		if value ~= nil and (not isFiniteNonNegative(value) or value > 1) then
 			problem(("HatchOdds: %s must be a number from 0 to 1"):format(field))
 		end
+	end
+	if config.restyleDiamondsPerToken ~= nil
+		and (type(config.restyleDiamondsPerToken) ~= "number" or config.restyleDiamondsPerToken < 1 or config.restyleDiamondsPerToken ~= math.floor(config.restyleDiamondsPerToken)) then
+		problem("HatchOdds: restyleDiamondsPerToken must be a whole number of at least 1")
 	end
 	if config.weatherTraitMatchMult ~= nil and not isFiniteNonNegative(config.weatherTraitMatchMult) then
 		problem("HatchOdds: weatherTraitMatchMult must be a non-negative number")

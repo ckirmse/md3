@@ -62,6 +62,7 @@ local function makeGenome(odds: HatchOdds.Odds, element: HatchOdds.Element, rari
 		traits = {},
 		parents = {},
 		origin = "market",
+		restyleCount = 0,
 		generation = 0,
 		ancestry = {},
 		bornAt = 0,
@@ -492,6 +493,20 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 		table.insert(failures, "NestMath.create returned nil for the cap test")
 	end
 
+	check("default restyle Diamond rate", config.restyleDiamondsPerToken or HatchOdds.DEFAULT_RESTYLE_DIAMONDS_PER_TOKEN, 5, 0)
+	local badRate = table.clone(config)
+	badRate.restyleDiamondsPerToken = 0
+	if #HatchOdds.validate(badRate) < 1 then
+		table.insert(failures, "a restyleDiamondsPerToken of 0 was not rejected")
+	end
+
+	-- genomes saved before restyles existed count as never restyled
+	local oldGenome = makeGenome(odds, "fire", "common")
+	local looseGenome: any = oldGenome
+	looseGenome.restyleCount = nil
+	Genome.fillLineage(oldGenome)
+	check("old genome restyle count", oldGenome.restyleCount, 0, 0)
+
 	local broken = table.clone(config)
 	broken.eggCap = 0
 	broken.weatherTraitChancePerMinute = 2
@@ -509,6 +524,7 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 		check("fresh tier", fresh.tier, 4, 0)
 		check("fresh parents", #fresh.parents, 0, 0)
 		check("fresh generation", fresh.generation, 0, 0)
+		check("fresh restyle count", fresh.restyleCount, 0, 0)
 		check("fresh ancestry", #fresh.ancestry, 0, 0)
 		if fresh.origin ~= "market" then
 			table.insert(failures, "fresh origin was " .. fresh.origin)

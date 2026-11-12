@@ -346,6 +346,18 @@ function DevTools.resetDiamonds(self: DevTools, player: Player)
 	playerAttributesManager:set(player, PlayerAttributeKeys.DIAMONDS, 0)
 end
 
+function DevTools.resetRestyleTokens(self: DevTools, player: Player)
+	playerAttributesManager:set(player, PlayerAttributeKeys.RESTYLE_TOKENS, 0)
+end
+
+function DevTools.giveRestyleTokens(self: DevTools, player: Player, amount: any)
+	if type(amount) ~= "number" or amount ~= math.floor(amount) or amount < 1 or amount > 1000 then
+		warn("giveRestyleTokens: amount must be a whole number from 1 to 1000", amount)
+		return
+	end
+	CurrencyGranter.grantRestyleTokens(player, amount, "devTool")
+end
+
 function DevTools.getCoins(self: DevTools, player: Player, amount: any)
 	if not amount or amount < 1 then
 		print("invalid coin amount to get", amount)
@@ -1257,7 +1269,7 @@ function DevTools.dumpGenomeDragons(self: DevTools, player: Player)
 		return
 	end
 
-	print("Genome dragons for", player.Name)
+	print("Genome dragons for", player.Name, "| restyle tokens", CurrencyGranter.getRestyleTokens(player))
 
 	local allItems = itemManager:getItemsOnGroundByUserId(player.UserId)
 	for _, item in itemManager:getItemsNotOnGroundByUserId(player.UserId) do
@@ -1295,6 +1307,8 @@ function DevTools.dumpGenomeDragons(self: DevTools, player: Player)
 			genome.mutation,
 			"traits",
 			if #genome.traits > 0 then table.concat(genome.traits, "+") else "none",
+			"restyles",
+			(genome :: any).restyleCount or 0,
 			"sell value",
 			dragon:getSellValue()
 		)
@@ -1409,6 +1423,7 @@ end
 function DevTools.resetFullPlayerState(self: DevTools, player: Player)
 	self:resetCoins(player)
 	self:resetDiamonds(player)
+	self:resetRestyleTokens(player)
 	self:resetPrimaryElementProgress(player)
 	self:resetPurchasedSlotUnlocks(player)
 	self:resetAllItems(player)

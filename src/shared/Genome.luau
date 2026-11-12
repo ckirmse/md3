@@ -39,6 +39,7 @@ export type Genome = {
 	traits: { string },
 	parents: { string }, -- parent uuids, empty for a founder
 	origin: Origin,
+	restyleCount: number, -- how many times this dragon has been restyled; the next restyle costs tier x 2^restyleCount
 	generation: number, -- 0 for a founder, otherwise the higher parent generation + 1
 	ancestry: { Ancestor }, -- snapshots of the parents, which hold theirs, up to LINEAGE_GENERATIONS deep; empty for a founder
 	bornAt: number,
@@ -51,7 +52,8 @@ function Genome.makeCode(uuid: string): string
 	return clean:sub(1, 8):upper()
 end
 
--- Genomes saved before lineage existed lack its fields: they count as founders (bred ones as bred), with no ancestry to show.
+-- Genomes saved before lineage or restyles existed lack those fields: they count as founders (bred ones as bred) with no ancestry
+-- to show, and as never restyled.
 function Genome.fillLineage(genome: Genome)
 	local loose: any = genome
 	if loose.origin == nil then
@@ -62,6 +64,9 @@ function Genome.fillLineage(genome: Genome)
 	end
 	if loose.ancestry == nil then
 		loose.ancestry = {}
+	end
+	if loose.restyleCount == nil then
+		loose.restyleCount = 0
 	end
 end
 

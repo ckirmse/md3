@@ -4,7 +4,7 @@
 -- can require it without a cycle (RewardGranter cannot be required from the Index because it pulls in IncomeManager). Diamonds are a
 -- player attribute (PlayerAttributeKeys.DIAMONDS), so they are saved and replicated with the other attributes, and Rebirth zeroes only coins.
 -- As of 2026-november-3 not built: Robux Diamond packs (no dev products yet), premium eggs (Luck 25 and 150, instant hatch), premium radar,
--- plot luck x100 levels and Style Tokens.
+-- plot luck x100 levels. Restyle Tokens (Dragon Den) are the second attribute currency; Restyle will spend them.
 local CurrencyGranter = {}
 
 local PlayerAttributeKeys = require("@game/ReplicatedStorage/Shared/PlayerAttributeKeys")
@@ -13,6 +13,7 @@ local analyticsManager = require("./AnalyticsManager")
 local playerAttributesManager = require("./PlayerAttributesManager")
 
 local DIAMONDS_CURRENCY_NAME = "Diamonds"
+local RESTYLE_TOKENS_CURRENCY_NAME = "RestyleTokens"
 
 function CurrencyGranter.grantCoins(player: Player, amount: number, acquisitionSource: string)
 	playerAttributesManager:addWholeNumber(player, PlayerAttributeKeys.COINS, amount)
@@ -63,6 +64,37 @@ function CurrencyGranter.trySpendDiamonds(player: Player, amount: number, spendR
 
 	playerAttributesManager:subtractWholeNumber(player, PlayerAttributeKeys.DIAMONDS, amount)
 	analyticsManager:logSpendCurrency(player, amount, CurrencyGranter.getDiamonds(player), spendReason, DIAMONDS_CURRENCY_NAME)
+	return true
+end
+
+function CurrencyGranter.getRestyleTokens(player: Player): number
+	return playerAttributesManager:get(player, PlayerAttributeKeys.RESTYLE_TOKENS) or 0
+end
+
+function CurrencyGranter.grantRestyleTokens(player: Player, amount: number, acquisitionSource: string)
+	playerAttributesManager:addWholeNumber(player, PlayerAttributeKeys.RESTYLE_TOKENS, amount)
+	analyticsManager:logGainCurrency(
+		player,
+		amount,
+		CurrencyGranter.getRestyleTokens(player),
+		acquisitionSource,
+		RESTYLE_TOKENS_CURRENCY_NAME
+	)
+end
+
+-- returns false and spends nothing when the amount is not a positive whole number or the player cannot afford it
+function CurrencyGranter.trySpendRestyleTokens(player: Player, amount: number, spendReason: string): boolean
+	if amount < 1 or amount ~= math.floor(amount) then
+		warn("CurrencyGranter: invalid restyle token amount to spend", amount, spendReason)
+		return false
+	end
+
+	if CurrencyGranter.getRestyleTokens(player) < amount then
+		return false
+	end
+
+	playerAttributesManager:subtractWholeNumber(player, PlayerAttributeKeys.RESTYLE_TOKENS, amount)
+	analyticsManager:logSpendCurrency(player, amount, CurrencyGranter.getRestyleTokens(player), spendReason, RESTYLE_TOKENS_CURRENCY_NAME)
 	return true
 end
 

@@ -389,6 +389,12 @@ function ClientDevTools.init(self: ClientDevTools, devToolSettings: any)
 			if Iris.Button({ "Dump Genome Dragons" }).clicked() then
 				RemoteEvents.TryDevTool:FireServer("dumpGenomeDragons")
 			end
+			if Iris.Button({ "Give 20 Restyle Tokens" }).clicked() then
+				RemoteEvents.TryDevTool:FireServer("giveRestyleTokens", 20)
+			end
+			if Iris.Button({ "Reset Restyle Tokens" }).clicked() then
+				RemoteEvents.TryDevTool:FireServer("resetRestyleTokens")
+			end
 			Iris.SeparatorText({ "Nests (these act on Nest 1)" })
 			if Iris.Button({ "Pair first two bred dragons" }).clicked() then
 				RemoteEvents.TryDevTool:FireServer("nestPair", 1)
