@@ -179,6 +179,11 @@ function NestManager.getClientData(self: NestManager, player: Player, playerData
 	}
 end
 
+-- what rolling an egg needs; the running weather applies to eggs whose timer starts now
+function NestManager.getRollContext(self: NestManager): NestMath.RollContext
+	return { rng = self.random, makeUuid = makeUuid, weather = getCurrentWeather() }
+end
+
 function NestManager.pushNests(self: NestManager, player: Player)
 	local playerData = gameController:getPlayerData(player)
 	if playerData then
@@ -224,7 +229,7 @@ function NestManager.setNest(self: NestManager, player: Player, nestIndex: any, 
 
 	-- both dragons were checked above to have a genome
 	local parentA, parentB = dragons[1]:getGenome() :: any, dragons[2]:getGenome() :: any
-	local nest = NestMath.create(odds, parentA, parentB, 1, workspace:GetServerTimeNow())
+	local nest = NestMath.create(odds, parentA, parentB, 1, workspace:GetServerTimeNow(), self:getRollContext())
 	if not nest then
 		return false, "Those dragons can't share a Nest (they need the same tier)"
 	end
@@ -316,12 +321,12 @@ function NestManager.hatchEgg(self: NestManager, player: Player, nestIndex: any,
 		if not self:giveGenomeDragon(player, genome) then
 			return false, "Could not create the dragon"
 		end
-		NestMath.takeEgg(odds, nest, eggIndex, workspace:GetServerTimeNow())
+		NestMath.takeEgg(odds, nest, eggIndex, workspace:GetServerTimeNow(), self:getRollContext())
 		return true, "Kept a new dragon"
 	end
 
 	local value = math.floor(GenomeValue.getValue(odds, genome))
-	NestMath.takeEgg(odds, nest, eggIndex, workspace:GetServerTimeNow())
+	NestMath.takeEgg(odds, nest, eggIndex, workspace:GetServerTimeNow(), self:getRollContext())
 	CurrencyGranter.grantCoins(player, value, "sellHatchling")
 	return true, string.format("Sold the dragon for %d coins", value)
 end

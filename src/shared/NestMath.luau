@@ -1,7 +1,9 @@
 --!strict
 
--- A Nest's lay schedule: two same-tier parents lay an egg every lay time while fewer than the cap wait, each rolled when it is laid.
--- Pure: the caller passes the time, a Random and the and uuid callback, so the server, the offline catch-up and the self-test share it.
+-- A Nest's lay schedule: two same-tier parents lay an egg every lay time while fewer than the cap wait. Each egg is rolled when its lay
+-- timer starts and held as the pending egg until the timer ends, so a result always exists before anyone pays to see it or speed it up.
+-- Pure: the caller passes the time and a RollContext (a Random, a uuid callback and the weather), so the server, the offline catch-up
+-- and the self-test share it.
 
 local Genome = require("./Genome")
 local GenomeRoll = require("./GenomeRoll")
@@ -25,8 +27,17 @@ export type Nest = {
 	parentA: Genome.Genome,
 	parentB: Genome.Genome,
 	eggs: { Egg },
+	pendingEgg: Genome.Genome?, -- rolled when the running timer started, it becomes an egg when the timer ends; nil while full
 	nextLayAt: number?, -- nil while the Nest is full
 	speedBoost: number, -- the speed boosts multiplied together, 1 for none
+	isBroken: boolean?, -- the parents could not be rolled, so the Nest lays nothing more
+}
+
+-- what rolling an egg needs
+export type RollContext = {
+	rng: Random,
+	makeUuid: () -> string,
+	weather: HatchOdds.Weather?, -- the weather when the timer starts, nil for offline catch-up
 }
 
 export type AdvanceParams = {
@@ -41,13 +52,34 @@ function NestMath.getLayTimeSec(odds: HatchOdds.Odds, nest: Nest): number
 	return GenomeValue.getPairLayTimeSec(odds, nest.parentA, nest.parentB, nest.speedBoost)
 end
 
--- a new Nest whose first egg is due one lay time from now; nil (after a warn) when the pair is invalid
+-- Starts a lay timer at startAt: rolls the egg it will lay and sets the due time. A roll that fails (parents that can't breed)
+-- marks the Nest broken so it stops instead of retrying every tick.
+local function startTimer(odds: HatchOdds.Odds, nest: Nest, startAt: number, context: RollContext)
+	local genome = GenomeRoll.rollGenome(odds, {
+		parentA = nest.parentA,
+		parentB = nest.parentB,
+		weather = context.weather,
+		uuid = context.makeUuid(),
+		bornAt = startAt,
+	}, context.rng)
+	if not genome then
+		nest.isBroken = true
+		nest.pendingEgg = nil
+		nest.nextLayAt = nil
+		return
+	end
+	nest.pendingEgg = genome
+	nest.nextLayAt = startAt + NestMath.getLayTimeSec(odds, nest)
+end
+
+-- a new Nest whose first egg is rolled now and due one lay time from now; nil (after a warn) when the pair is invalid
 function NestMath.create(
 	odds: HatchOdds.Odds,
 	parentA: Genome.Genome,
 	parentB: Genome.Genome,
 	speedBoost: number,
-	now: number
+	now: number,
+	context: RollContext
 ): Nest?
 	if parentA.tier ~= parentB.tier then
 		warn("NestMath: parents of different tiers", parentA.uuid, parentB.uuid)
@@ -58,53 +90,63 @@ function NestMath.create(
 		parentA = parentA,
 		parentB = parentB,
 		eggs = {},
+		pendingEgg = nil,
 		nextLayAt = nil,
 		speedBoost = speedBoost,
 	}
-	nest.nextLayAt = now + NestMath.getLayTimeSec(odds, nest)
+	startTimer(odds, nest, now, context)
+	if nest.isBroken then
+		return nil
+	end
 	return nest
 end
 
 -- Lays every egg that is due by params.now, up to the cap, and returns them. An egg is laid at its due time, so catching up after
--- being offline gives the same eggs as having been online; a full Nest has no due time and lays nothing.
+-- being offline gives the same eggs as having been online; each laid egg starts the next timer, which rolls the next egg. A full Nest
+-- has no timer and no pending egg.
 function NestMath.advance(odds: HatchOdds.Odds, nest: Nest, params: AdvanceParams): { Egg }
 	local laid: { Egg } = {}
-	local layTimeSec = NestMath.getLayTimeSec(odds, nest)
+	if nest.isBroken then
+		return laid
+	end
 
 	local eggCap = NestMath.getEggCap(odds)
 
 	-- a Nest saved full has no timer; if the cap has been raised since, it starts laying again from now
 	if nest.nextLayAt == nil and #nest.eggs < eggCap then
-		nest.nextLayAt = params.now + layTimeSec
+		startTimer(odds, nest, params.now, params)
 	end
 
-	while #nest.eggs < eggCap do
+	-- a Nest saved before eggs were rolled at timer start has a timer but no pending egg: roll it now and keep the due time
+	if nest.nextLayAt ~= nil and nest.pendingEgg == nil and not nest.isBroken then
 		local dueAt = nest.nextLayAt
-		if dueAt == nil or dueAt > params.now then
+		startTimer(odds, nest, params.now, params)
+		if not nest.isBroken then
+			nest.nextLayAt = dueAt
+		end
+	end
+
+	while #nest.eggs < eggCap and not nest.isBroken do
+		local dueAt = nest.nextLayAt
+		local pending = nest.pendingEgg
+		if dueAt == nil or pending == nil or dueAt > params.now then
 			break
 		end
 
-		local genome = GenomeRoll.rollGenome(odds, {
-			parentA = nest.parentA,
-			parentB = nest.parentB,
-			weather = params.weather,
-			uuid = params.makeUuid(),
-			bornAt = dueAt,
-		}, params.rng)
-		if not genome then
-			-- the parents can't breed, so stop instead of retrying forever
-			nest.nextLayAt = nil
-			break
-		end
-
-		local egg: Egg = { genome = genome, laidAt = dueAt }
+		local egg: Egg = { genome = pending, laidAt = dueAt }
 		table.insert(nest.eggs, egg)
 		table.insert(laid, egg)
-		nest.nextLayAt = dueAt + layTimeSec
+		nest.pendingEgg = nil
+		if #nest.eggs >= eggCap then
+			nest.nextLayAt = nil
+		else
+			startTimer(odds, nest, dueAt, params)
+		end
 	end
 
 	if #nest.eggs >= eggCap then
 		nest.nextLayAt = nil
+		nest.pendingEgg = nil
 	end
 	return laid
 end
@@ -130,10 +172,10 @@ function NestMath.growTraits(odds: HatchOdds.Odds, nest: Nest, weather: HatchOdd
 end
 
 -- Removes the egg at the index. A Nest that was full starts its next lay time now, since it was not laying while it waited.
-function NestMath.takeEgg(odds: HatchOdds.Odds, nest: Nest, index: number, now: number): Egg?
+function NestMath.takeEgg(odds: HatchOdds.Odds, nest: Nest, index: number, now: number, context: RollContext): Egg?
 	local egg = table.remove(nest.eggs, index)
-	if egg and nest.nextLayAt == nil and #nest.eggs < NestMath.getEggCap(odds) then
-		nest.nextLayAt = now + NestMath.getLayTimeSec(odds, nest)
+	if egg and nest.nextLayAt == nil and not nest.isBroken and #nest.eggs < NestMath.getEggCap(odds) then
+		startTimer(odds, nest, now, context)
 	end
 	return egg
 end

@@ -328,38 +328,67 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 		eggCount += 1
 		return ("%08d-1111-2222-3333-444444444444"):format(eggCount)
 	end
+	local rollContext: NestMath.RollContext = { rng = rng, makeUuid = makeUuid, weather = nil }
 	local nestA = makeGenome(odds, "fire", "common")
 	local nestB = makeGenome(odds, "fire", "common")
 	nestB.uuid = "nest-b"
-	local nest = NestMath.create(odds, nestA, nestB, 1, 1000)
+	local nest = NestMath.create(odds, nestA, nestB, 1, 1000, rollContext)
 	if not nest then
 		table.insert(failures, "NestMath.create returned nil for a valid pair")
 	else
 		check("nest first egg due", nest.nextLayAt or -1, 1030, 0)
+		local firstPending = nest.pendingEgg
+		if not firstPending then
+			table.insert(failures, "a new Nest has no pending egg")
+		end
 		local params: NestMath.AdvanceParams = { now = 1029, rng = rng, makeUuid = makeUuid }
 		check("no egg before it is due", #NestMath.advance(odds, nest, params), 0, 0)
 		params.now = 1100
 		local laid = NestMath.advance(odds, nest, params)
 		check("eggs laid by the catch-up", #laid, 3, 0)
+		if firstPending and laid[1] and laid[1].genome.uuid ~= firstPending.uuid then
+			table.insert(failures, "the first laid egg is not the one rolled at timer start")
+		end
 		check("third egg is laid at its due time", if #laid == 3 then laid[3].laidAt else -1, 1090, 0)
 		check("a full nest has no due time", if nest.nextLayAt == nil then 1 else 0, 1, 0)
+		check("a full nest has no pending egg", if nest.pendingEgg == nil then 1 else 0, 1, 0)
 		params.now = 5000
 		check("a full nest lays nothing", #NestMath.advance(odds, nest, params), 0, 0)
-		NestMath.takeEgg(odds, nest, 1, 5000)
+		NestMath.takeEgg(odds, nest, 1, 5000, rollContext)
 		check("taking an egg restarts the timer", nest.nextLayAt or -1, 5030, 0)
+		local restartPending = nest.pendingEgg
+		if not restartPending then
+			table.insert(failures, "taking an egg did not roll the next pending egg")
+		end
 		params.now = 5030
-		check("one egg after the timer", #NestMath.advance(odds, nest, params), 1, 0)
+		local afterTimer = NestMath.advance(odds, nest, params)
+		check("one egg after the timer", #afterTimer, 1, 0)
+		if restartPending and afterTimer[1] and afterTimer[1].genome.uuid ~= restartPending.uuid then
+			table.insert(failures, "the egg laid after a restart is not the pending egg")
+		end
+	end
+
+	-- a Nest saved before eggs were rolled at timer start gets its pending egg on the next advance and keeps its due time
+	local migratedNest = NestMath.create(odds, nestA, nestB, 1, 2000, rollContext)
+	if migratedNest then
+		migratedNest.pendingEgg = nil
+		NestMath.advance(odds, migratedNest, { now = 2010, rng = rng, makeUuid = makeUuid })
+		if not migratedNest.pendingEgg then
+			table.insert(failures, "an old Nest did not get a pending egg")
+		end
+		check("an old Nest keeps its due time", migratedNest.nextLayAt or -1, 2030, 0)
+		check("an old Nest lays nothing before it is due", #migratedNest.eggs, 0, 0)
 	end
 	local slowA = makeGenome(odds, "fire", "uncommon") -- 7 Uncommon pieces score 7, the Rare band
 	local slowB = makeGenome(odds, "fire", "uncommon")
 	slowB.uuid = "slow-b"
-	local slowNest = NestMath.create(odds, slowA, slowB, 1, 0)
+	local slowNest = NestMath.create(odds, slowA, slowB, 1, 0, rollContext)
 	check("lay time of Rare parents", if slowNest then NestMath.getLayTimeSec(odds, slowNest) else -1, 37.5, 0.001)
-	local boosted = NestMath.create(odds, nestA, nestB, 0.75, 0)
+	local boosted = NestMath.create(odds, nestA, nestB, 0.75, 0, rollContext)
 	check("lay time with a speed boost", if boosted then NestMath.getLayTimeSec(odds, boosted) else -1, 22.5, 0.001)
 	local mismatchedTier = table.clone(nestB)
 	mismatchedTier.tier = 2
-	if NestMath.create(odds, nestA, mismatchedTier, 1, 0) ~= nil then
+	if NestMath.create(odds, nestA, mismatchedTier, 1, 0, rollContext) ~= nil then
 		table.insert(failures, "NestMath.create accepted parents of different tiers")
 	end
 
@@ -413,7 +442,7 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 	local traitParentA = makeGenome(odds, "fire", "common")
 	local traitParentB = makeGenome(odds, "fire", "common")
 	traitParentB.uuid = "trait-b"
-	local traitNest = NestMath.create(odds, traitParentA, traitParentB, 1, 0)
+	local traitNest = NestMath.create(odds, traitParentA, traitParentB, 1, 0, rollContext)
 	if traitNest then
 		NestMath.advance(odds, traitNest, { now = 100000, rng = rng, makeUuid = makeUuid })
 		check("no weather, no traits", NestMath.growTraits(odds, traitNest, nil, 6000, rng), 0, 0)
@@ -446,7 +475,7 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 	local capParentA = makeGenome(odds, "fire", "common")
 	local capParentB = makeGenome(odds, "fire", "common")
 	capParentB.uuid = "cap-b"
-	local capNest = NestMath.create(odds, capParentA, capParentB, 1, 0)
+	local capNest = NestMath.create(odds, capParentA, capParentB, 1, 0, rollContext)
 	if capNest then
 		NestMath.advance(odds, capNest, { now = 100000, rng = rng, makeUuid = makeUuid })
 		check("the Nest is full at the default cap", #capNest.eggs, 3, 0)

@@ -1206,6 +1206,21 @@ function DevTools.nestDump(self: DevTools, player: Player)
 			"| next egg in",
 			if nest.nextLayAt then string.format("%.0f s", nest.nextLayAt - now) else "- (full)"
 		)
+		local pending = nest.pendingEgg
+		if pending then
+			print(
+				"   ",
+				"pending (rolled when the timer started)",
+				pending.code,
+				GenomeValue.getBand(odds, pending),
+				"mutation",
+				pending.mutation,
+				"tier",
+				odds.config.tiers[pending.tier].name
+			)
+		elseif nest.isBroken then
+			print("   ", "broken: these parents can't be rolled")
+		end
 		for eggIndex, egg in nest.eggs do
 			local genome = egg.genome
 			print(
