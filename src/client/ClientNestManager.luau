@@ -116,13 +116,13 @@ local function describeGenome(genome: any): string
 	return ("%s  %s  (%s)"):format(genome.code, getBandName(genome), getTierName(genome))
 end
 
--- { "soaked", "toasty" } as "Soaked, Toasty"
+-- { "soaked", "toasty" } as "Soaked + Toasty"
 local function formatTraits(traits: { string }): string
 	local names = {}
 	for _, trait in traits do
 		table.insert(names, trait:sub(1, 1):upper() .. trait:sub(2))
 	end
-	return table.concat(names, ", ")
+	return table.concat(names, " + ")
 end
 
 -- 50000 as "50,000"
@@ -259,11 +259,10 @@ function ClientNestManager.rebuildNests(self: ClientNestManager)
 				for eggIndex, egg in nest.eggs do
 					local eggFrame = cloneTemplate(eggTemplate, eggList, "Egg" .. eggIndex)
 					eggFrame.LayoutOrder = eggIndex
-					local label = if egg.isTierJump then ("Egg %d: glowing!"):format(eggIndex) else ("Egg %d"):format(eggIndex)
-					if egg.traits and #egg.traits > 0 then
-						label ..= " (" .. formatTraits(egg.traits) .. ")"
-					end
-					setText(eggFrame:FindFirstChild("Label"), label)
+					setText(eggFrame:FindFirstChild("Label"), if egg.isTierJump then ("Egg %d: glowing!"):format(eggIndex) else ("Egg %d"):format(eggIndex))
+					local hasTraits = egg.traits ~= nil and #egg.traits > 0
+					setText(eggFrame:FindFirstChild("Traits"), if hasTraits then formatTraits(egg.traits) else "")
+					setVisible(eggFrame:FindFirstChild("Traits"), hasTraits)
 					setVisible(eggFrame:FindFirstChild("Glow"), egg.isTierJump)
 					local hatchButton = eggFrame:FindFirstChild("HatchButton")
 					if hatchButton then
@@ -524,6 +523,8 @@ function ClientNestManager.showReveal(self: ClientNestManager, reveal: any)
 	setText(frame:FindFirstChild("Banner"), "")
 	setText(frame:FindFirstChild("Subtitle"), "")
 	setText(frame:FindFirstChild("Mutation"), "")
+	setText(frame:FindFirstChild("Traits"), "")
+	setVisible(frame:FindFirstChild("Traits"), false)
 	setText(frame:FindFirstChild("Size"), "")
 	setText(frame:FindFirstChild("Value"), "")
 	frame.Visible = true
@@ -554,11 +555,10 @@ function ClientNestManager.showReveal(self: ClientNestManager, reveal: any)
 			banner.TextColor3 = RARITY_COLORS[reveal.band] or banner.TextColor3
 		end
 		setText(frame:FindFirstChild("Subtitle"), (if reveal.isTierJump then "TIER JUMP! " else "") .. getTierName(genome))
-		local mutationText = if genome.mutation == "normal" then "No mutation" else "Mutation: " .. genome.mutation
-		if genome.traits and #genome.traits > 0 then
-			mutationText ..= "  |  Traits: " .. formatTraits(genome.traits)
-		end
-		setText(frame:FindFirstChild("Mutation"), mutationText)
+		setText(frame:FindFirstChild("Mutation"), if genome.mutation == "normal" then "No mutation" else "Mutation: " .. genome.mutation)
+		local hasTraits = genome.traits ~= nil and #genome.traits > 0
+		setText(frame:FindFirstChild("Traits"), if hasTraits then "Traits: " .. formatTraits(genome.traits) else "")
+		setVisible(frame:FindFirstChild("Traits"), hasTraits)
 		setText(frame:FindFirstChild("Size"), ("Size %.2f%s"):format(genome.size, if genome.isGiant then " (Giant!)" else ""))
 		setText(frame:FindFirstChild("Value"), ("Sell value: %d coins"):format(reveal.value))
 	end)
@@ -664,9 +664,9 @@ end
 -- In StarterGui, a ScreenGui named Nests with ResetOnSpawn off and Enabled off:
 --   Dialog, with CloseButton, an optional BuyNestButton (with a Label; shown while a Nest can be bought) and
 --     NestList (a list layout) holding the hidden NestTemplate: Title, EmptyLabel, PairButton, and FilledFrame with ParentA, ParentB,
---       Timer, ClearButton and EggList (a list layout) holding the hidden EggTemplate: Label, HatchButton and an optional Glow
+--       Timer, ClearButton and EggList (a list layout) holding the hidden EggTemplate: Label, Traits, HatchButton and an optional Glow
 --     Picker (hidden): DragonList holding the hidden DragonTemplate (Label, optional SelectedMark), OddsList holding the hidden OddsTemplate (a rich text label), Hint, ConfirmButton, CancelButton
---     Reveal (hidden): Banner, Subtitle, PieceList holding the hidden PieceTemplate (Label), Mutation, Size, Value, SellButton, KeepButton,
+--     Reveal (hidden): Banner, Subtitle, PieceList holding the hidden PieceTemplate (Label), Mutation, Traits, Size, Value, SellButton, KeepButton,
 --       CloseButton
 function ClientNestManager.setUpGui(self: ClientNestManager)
 	local playerGui = player:WaitForChild("PlayerGui")
