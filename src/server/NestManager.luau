@@ -8,7 +8,7 @@
 -- pushed after every change and every laid egg) and NotifyNestReveal. Eggs are named by their genome uuid, so a stale click can't hit another egg.
 -- The Nest count is the config's nestBaseCount plus the Nests bought with Gold (nestGoldPrices, in order) and the bonus slots from other
 -- sources, up to nestMaxCount; a Nest that holds dragons is never hidden if the count later drops.
--- As of 2026-november-10 not built: weather boosts and traits on waiting eggs, Incubators,
+-- As of 2026-november-11 not built: weather VFX on eggs, Incubators,
 -- the Gene Book and gamepass Nests (the bonus slot is their hook).
 local NestManager = {}
 NestManager.__index = NestManager
@@ -26,17 +26,20 @@ local itemManager: Types.ItemManager -- injected via initClass(deps); typed thro
 local GenomeItemName = require("@game/ReplicatedStorage/Shared/GenomeItemName")
 local GenomeValue = require("@game/ReplicatedStorage/Shared/GenomeValue")
 local HatchOdds = require("@game/ReplicatedStorage/Shared/HatchOdds")
+local HatchWeather = require("@game/ReplicatedStorage/Shared/HatchWeather")
 local NestMath = require("@game/ReplicatedStorage/Shared/NestMath")
 
 local CurrencyGranter = require("./CurrencyGranter")
 local hatchOddsManager = require("./HatchOddsManager")
 local nestWorldManager = require("./NestWorldManager")
 local plotsManager = require("./PlotsManager")
+local weatherEventManager = require("./WeatherEventManager")
 
 local TICK_SEC = 1
 
 type NestManagerFields = {
 	random: Random,
+	lastWeather: HatchOdds.Weather?, -- the weather the players were last sent
 }
 
 export type NestManager = typeof(setmetatable({} :: NestManagerFields, NestManager))
@@ -135,6 +138,12 @@ function NestManager.giveGenomeDragon(self: NestManager, player: Player, genome:
 end
 
 -- the whole state the client draws: one entry per Nest slot, the parents' genomes, the next egg's server time and the waiting eggs
+-- the Hatch weather now running in the world, nil when none counts
+local function getCurrentWeather(): HatchOdds.Weather?
+	local active = weatherEventManager:getActivePayload()
+	return HatchWeather.fromGameWeather(if active then active.weather else nil)
+end
+
 function NestManager.getClientData(self: NestManager, player: Player, playerData: any): any?
 	local odds = hatchOddsManager:getOdds()
 	if not odds then
@@ -150,7 +159,7 @@ function NestManager.getClientData(self: NestManager, player: Player, playerData
 		end
 		local eggs = {}
 		for _, egg in nest.eggs do
-			table.insert(eggs, { id = egg.genome.uuid, laidAt = egg.laidAt, isTierJump = isTierJump(nest, egg) })
+			table.insert(eggs, { id = egg.genome.uuid, laidAt = egg.laidAt, isTierJump = isTierJump(nest, egg), traits = egg.genome.traits })
 		end
 		table.insert(nests, {
 			isEmpty = false,
@@ -163,6 +172,7 @@ function NestManager.getClientData(self: NestManager, player: Player, playerData
 	end
 
 	return {
+		weather = getCurrentWeather(),
 		nextNestPrice = getNextNestPrice(odds, playerData),
 		plotIndex = plotsManager:getPlotIndexByUserId(player.UserId),
 		nests = nests,
@@ -346,24 +356,28 @@ function NestManager.tryDecide(self: NestManager, player: Player, nestIndex: any
 	self:pushNests(player)
 end
 
--- Lays the eggs that are due in every Nest of the player and returns how many.
-function NestManager.tickPlayer(self: NestManager, player: Player, playerData: any): number
+-- Lays the eggs that are due in every Nest and, while it is live, lets the running weather give the waiting eggs traits; returns how many
+-- things changed. A catch-up (joining) rolls with no weather, as the spec says offline eggs gain nothing. elapsedSec is the weather time
+-- the trait roll covers, one tick unless a dev skip says otherwise.
+function NestManager.tickPlayer(self: NestManager, player: Player, playerData: any, isLive: boolean, elapsedSec: number?): number
 	local odds = hatchOddsManager:getOdds()
 	if not odds then
 		return 0
 	end
 
+	local weather = if isLive then getCurrentWeather() else nil
 	local params: NestMath.AdvanceParams = {
 		now = workspace:GetServerTimeNow(),
 		rng = self.random,
 		makeUuid = makeUuid,
-		weather = nil,
+		weather = weather,
 	}
-	local laidCount = 0
+	local changedCount = 0
 	for _, nest in playerData:getNests() do
-		laidCount += #NestMath.advance(odds, nest, params)
+		changedCount += #NestMath.advance(odds, nest, params)
+		changedCount += NestMath.growTraits(nest, weather, elapsedSec or TICK_SEC, self.random)
 	end
-	return laidCount
+	return changedCount
 end
 
 -- dev only: moves every timer back so the Nests lay as if that many seconds had passed
@@ -377,13 +391,13 @@ function NestManager.devSkipTime(self: NestManager, player: Player, seconds: num
 			nest.nextLayAt -= seconds
 		end
 	end
-	self:tickPlayer(player, playerData)
+	self:tickPlayer(player, playerData, true, seconds)
 	self:pushNests(player)
 end
 
 -- catches the Nests up for the time the player was away, then tells the client
 function NestManager.notifyAddPlayer(self: NestManager, player: Player, playerData: any)
-	self:tickPlayer(player, playerData)
+	self:tickPlayer(player, playerData, false)
 	self:pushNests(player)
 end
 
@@ -432,9 +446,13 @@ function NestManager.init(self: NestManager)
 	task.spawn(function()
 		while true do
 			task.wait(TICK_SEC)
+			-- everyone is told when the weather changes, so the pairing odds show its mutation boost
+			local weather = getCurrentWeather()
+			local isWeatherChanged = weather ~= self.lastWeather
+			self.lastWeather = weather
 			for _, player in players:GetPlayers() do
 				local playerData = gameController:getPlayerData(player)
-				if playerData and self:tickPlayer(player, playerData) > 0 then
+				if playerData and (self:tickPlayer(player, playerData, true) > 0 or isWeatherChanged) then
 					self:pushNests(player)
 				end
 			end
@@ -445,6 +463,7 @@ end
 function NestManager.new(): NestManager
 	local self = setmetatable({} :: NestManagerFields, NestManager)
 	self.random = Random.new()
+	self.lastWeather = nil
 	return self
 end
 

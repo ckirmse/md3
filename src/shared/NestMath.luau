@@ -7,6 +7,7 @@ local Genome = require("./Genome")
 local GenomeRoll = require("./GenomeRoll")
 local GenomeValue = require("./GenomeValue")
 local HatchOdds = require("./HatchOdds")
+local HatchWeather = require("./HatchWeather")
 
 local NestMath = {}
 
@@ -97,6 +98,23 @@ function NestMath.advance(odds: HatchOdds.Odds, nest: Nest, params: AdvanceParam
 		nest.nextLayAt = nil
 	end
 	return laid
+end
+
+-- Gives each waiting egg its chance at the weather's trait for dtSec of weather; returns how many eggs gained one.
+-- Traits are rolled on waiting eggs only, so a full Nest is the gamble the spec describes.
+function NestMath.growTraits(nest: Nest, weather: HatchOdds.Weather?, dtSec: number, rng: Random): number
+	if not weather then
+		return 0
+	end
+	local trait = HatchWeather.getTraitDef(weather).trait
+	local gained = 0
+	for _, egg in nest.eggs do
+		if rng:NextNumber() < HatchWeather.getTraitChance(egg.genome, weather, dtSec) then
+			table.insert(egg.genome.traits, trait)
+			gained += 1
+		end
+	end
+	return gained
 end
 
 -- Removes the egg at the index. A Nest that was full starts its next lay time now, since it was not laying while it waited.

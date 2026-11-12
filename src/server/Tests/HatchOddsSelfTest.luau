@@ -9,6 +9,8 @@ local GenomeLook = require("@game/ReplicatedStorage/Shared/GenomeLook")
 local GenomeRoll = require("@game/ReplicatedStorage/Shared/GenomeRoll")
 local GenomeValue = require("@game/ReplicatedStorage/Shared/GenomeValue")
 local HatchOdds = require("@game/ReplicatedStorage/Shared/HatchOdds")
+local HatchWeather = require("@game/ReplicatedStorage/Shared/HatchWeather")
+local Enums = require("@game/ReplicatedStorage/Shared/Enums")
 local NestMath = require("@game/ReplicatedStorage/Shared/NestMath")
 local PairOdds = require("@game/ReplicatedStorage/Shared/PairOdds")
 
@@ -390,6 +392,41 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 	end
 	line.pieces.wings = wingsBefore
 	check("snapshot of one level has no ancestors", #frozen.ancestry, 0, 0)
+
+	-- weather traits: 2% per minute for a waiting egg, doubled for a 50%+ match, never twice, none without weather
+	if HatchWeather.fromGameWeather(Enums.Weather.RAIN) ~= "rain" or HatchWeather.fromGameWeather(Enums.Weather.HEAT) ~= "heatwave"
+		or HatchWeather.fromGameWeather(Enums.Weather.BLOOM) ~= "bloomStorm" or HatchWeather.fromGameWeather(Enums.Weather.THUNDERSTORM) ~= "thunderstorm" then
+		table.insert(failures, "the game weathers did not map to the Hatch weathers")
+	end
+	if HatchWeather.fromGameWeather(Enums.Weather.WIND) ~= nil or HatchWeather.fromGameWeather(nil) ~= nil then
+		table.insert(failures, "Wind or no weather gave a Hatch weather")
+	end
+	local waterEgg = makeGenome(odds, "water", "common")
+	local fireEgg = makeGenome(odds, "fire", "common")
+	check("trait chance, matching element", HatchWeather.getTraitChance(waterEgg, "rain", 60), 0.04, 0.0001)
+	check("trait chance, other element", HatchWeather.getTraitChance(fireEgg, "rain", 60), 0.02, 0.0001)
+	check("trait chance, half a minute", HatchWeather.getTraitChance(fireEgg, "rain", 30), 1 - 0.98 ^ 0.5, 0.0001)
+	check("trait chance, thunderstorm has no matching element", HatchWeather.getTraitChance(waterEgg, "thunderstorm", 60), 0.02, 0.0001)
+	waterEgg.traits = { "soaked" }
+	check("trait chance, already has it", HatchWeather.getTraitChance(waterEgg, "rain", 60), 0, 0)
+
+	local traitParentA = makeGenome(odds, "fire", "common")
+	local traitParentB = makeGenome(odds, "fire", "common")
+	traitParentB.uuid = "trait-b"
+	local traitNest = NestMath.create(odds, traitParentA, traitParentB, 1, 0)
+	if traitNest then
+		NestMath.advance(odds, traitNest, { now = 100000, rng = rng, makeUuid = makeUuid })
+		check("no weather, no traits", NestMath.growTraits(traitNest, nil, 6000, rng), 0, 0)
+		check("a long rain gives every egg the trait", NestMath.growTraits(traitNest, "rain", 100000, rng), #traitNest.eggs, 0)
+		check("a second rain gives nothing new", NestMath.growTraits(traitNest, "rain", 100000, rng), 0, 0)
+		for _, egg in traitNest.eggs do
+			if #egg.genome.traits ~= 1 or egg.genome.traits[1] ~= "soaked" then
+				table.insert(failures, "an egg's traits were not just soaked")
+			end
+		end
+	else
+		table.insert(failures, "NestMath.create returned nil for the weather trait test")
+	end
 
 	-- a fresh roll has no parents, keeps its mix and tier, and only rolls pieces of the elements it has
 	local fresh = GenomeRoll.rollFresh(odds, { fire = 0.5, water = 0.5, nature = 0 }, 4, "00000000-1111-2222-3333-444444444444", 0, "market", rng)

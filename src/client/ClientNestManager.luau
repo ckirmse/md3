@@ -40,6 +40,13 @@ local PART_LABELS: { [string]: string } = {
 	meshTexture = "Texture",
 }
 
+local WEATHER_LABELS: { [string]: string } = {
+	rain = "Rain",
+	heatwave = "Heatwave",
+	bloomStorm = "Bloom Storm",
+	thunderstorm = "Thunderstorm",
+}
+
 -- piece rarities and dragon bands share one palette
 local RARITY_COLORS: { [string]: Color3 } = {
 	common = Color3.fromRGB(190, 190, 190),
@@ -51,6 +58,7 @@ local RARITY_COLORS: { [string]: Color3 } = {
 }
 
 type NestsState = {
+	weather: string?, -- the Hatch weather running now, which boosts one mutation of the eggs laid during it
 	nextNestPrice: number?, -- the Gold price of the next Nest the player can buy, nil when there is none
 	plotIndex: number?, -- the player's plot, which the Nest models in the world are matched to
 	nests: { any }, -- one per slot: { isEmpty = true } or { parentA, parentB, nextLayAt, layTimeSec, eggs }
@@ -106,6 +114,15 @@ end
 
 local function describeGenome(genome: any): string
 	return ("%s  %s  (%s)"):format(genome.code, getBandName(genome), getTierName(genome))
+end
+
+-- { "soaked", "toasty" } as "Soaked, Toasty"
+local function formatTraits(traits: { string }): string
+	local names = {}
+	for _, trait in traits do
+		table.insert(names, trait:sub(1, 1):upper() .. trait:sub(2))
+	end
+	return table.concat(names, ", ")
 end
 
 -- 50000 as "50,000"
@@ -242,7 +259,11 @@ function ClientNestManager.rebuildNests(self: ClientNestManager)
 				for eggIndex, egg in nest.eggs do
 					local eggFrame = cloneTemplate(eggTemplate, eggList, "Egg" .. eggIndex)
 					eggFrame.LayoutOrder = eggIndex
-					setText(eggFrame:FindFirstChild("Label"), if egg.isTierJump then ("Egg %d: glowing!"):format(eggIndex) else ("Egg %d"):format(eggIndex))
+					local label = if egg.isTierJump then ("Egg %d: glowing!"):format(eggIndex) else ("Egg %d"):format(eggIndex)
+					if egg.traits and #egg.traits > 0 then
+						label ..= " (" .. formatTraits(egg.traits) .. ")"
+					end
+					setText(eggFrame:FindFirstChild("Label"), label)
 					setVisible(eggFrame:FindFirstChild("Glow"), egg.isTierJump)
 					local hatchButton = eggFrame:FindFirstChild("HatchButton")
 					if hatchButton then
@@ -291,6 +312,9 @@ function ClientNestManager.setData(self: ClientNestManager, data: any)
 
 	self.state = data :: NestsState
 	self:refreshHud()
+	if self.picker and self.picker.Visible then
+		self:refreshPickerOdds()
+	end
 	if self.isOverlayOpen then
 		self:rebuildNests()
 	end
@@ -317,8 +341,11 @@ local function colorText(text: string, rarity: string): string
 end
 
 -- the lines of the pairing screen's odds panel: the baby's mix, rarity, value, size, then every part's and the mutation's chances
-local function buildOddsLines(odds: HatchOdds.Odds, result: PairOdds.Result): { string }
+local function buildOddsLines(odds: HatchOdds.Odds, result: PairOdds.Result, weather: string?): { string }
 	local lines: { string } = {}
+	if weather then
+		table.insert(lines, ("<b>Weather now</b>: %s, which boosts its matching mutation for eggs laid during it"):format(WEATHER_LABELS[weather] or weather))
+	end
 
 	local mix = {}
 	for _, element in HatchOdds.ELEMENTS do
@@ -378,11 +405,12 @@ function ClientNestManager.refreshPickerOdds(self: ClientNestManager)
 	if not odds or #self.pickerSelected < 2 then
 		return
 	end
-	local result = PairOdds.get(odds, self.pickerSelected[1].genome, self.pickerSelected[2].genome, nil)
+	local weather = if self.state then self.state.weather else nil
+	local result = PairOdds.get(odds, self.pickerSelected[1].genome, self.pickerSelected[2].genome, weather :: any)
 	if not result then
 		return
 	end
-	for order, line in buildOddsLines(odds, result) do
+	for order, line in buildOddsLines(odds, result, weather) do
 		local row = cloneTemplate(template, oddsList, "Odds" .. order)
 		row.LayoutOrder = order
 		row.RichText = true
@@ -526,7 +554,11 @@ function ClientNestManager.showReveal(self: ClientNestManager, reveal: any)
 			banner.TextColor3 = RARITY_COLORS[reveal.band] or banner.TextColor3
 		end
 		setText(frame:FindFirstChild("Subtitle"), (if reveal.isTierJump then "TIER JUMP! " else "") .. getTierName(genome))
-		setText(frame:FindFirstChild("Mutation"), if genome.mutation == "normal" then "No mutation" else "Mutation: " .. genome.mutation)
+		local mutationText = if genome.mutation == "normal" then "No mutation" else "Mutation: " .. genome.mutation
+		if genome.traits and #genome.traits > 0 then
+			mutationText ..= "  |  Traits: " .. formatTraits(genome.traits)
+		end
+		setText(frame:FindFirstChild("Mutation"), mutationText)
 		setText(frame:FindFirstChild("Size"), ("Size %.2f%s"):format(genome.size, if genome.isGiant then " (Giant!)" else ""))
 		setText(frame:FindFirstChild("Value"), ("Sell value: %d coins"):format(reveal.value))
 	end)
