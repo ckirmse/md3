@@ -1278,6 +1278,8 @@ function DevTools.dumpGenomeDragons(self: DevTools, player: Player)
 			string.format("%.2f", genome.size),
 			"mutation",
 			genome.mutation,
+			"traits",
+			if #genome.traits > 0 then table.concat(genome.traits, "+") else "none",
 			"sell value",
 			dragon:getSellValue()
 		)
