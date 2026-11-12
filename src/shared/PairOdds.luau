@@ -29,7 +29,7 @@ export type Result = {
 }
 
 -- weights to chances that add up to 1, highest first
-local function toChances(list: { GenomeRoll.Weighted }): { Chance }
+function PairOdds.toChances(list: { GenomeRoll.Weighted }): { Chance }
 	local total = 0
 	for _, entry in list do
 		total += entry.weight
@@ -69,7 +69,7 @@ function PairOdds.get(odds: HatchOdds.Odds, parentA: Genome.Genome, parentB: Gen
 	-- the chance of each total score over the 7 parts
 	local scoreChances: { [number]: number } = { [0] = 1 }
 	for _, part in HatchOdds.PARTS do
-		local chances = toChances(GenomeRoll.getPieceWeights(odds, part, shares, { parentA.pieces[part], parentB.pieces[part] }))
+		local chances = PairOdds.toChances(GenomeRoll.getPieceWeights(odds, part, shares, { parentA.pieces[part], parentB.pieces[part] }))
 		parts[part] = chances
 
 		local next: { [number]: number } = {}
@@ -94,7 +94,7 @@ function PairOdds.get(odds: HatchOdds.Odds, parentA: Genome.Genome, parentB: Gen
 		expectedScore += score * chance
 	end
 
-	local mutations = toChances(GenomeRoll.getMutationWeights(odds, shares, { parentA.mutation, parentB.mutation }, weather))
+	local mutations = PairOdds.toChances(GenomeRoll.getMutationWeights(odds, shares, { parentA.mutation, parentB.mutation }, weather))
 
 	local average = (parentA.size + parentB.size) / 2
 	local base = average * config.sizeParentWeight + config.sizeBase

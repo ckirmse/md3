@@ -27,6 +27,7 @@ local clientEggWorldCountsManager = require("./ClientEggWorldCountsManager")
 local clientRebirthManager = require("./ClientRebirthManager")
 local clientLuckInfoManager = require("./ClientLuckInfoManager")
 local clientNestManager = require("./ClientNestManager")
+local clientRestyleManager = require("./ClientRestyleManager")
 local clientOptionsManager = require("./ClientOptionsManager")
 local clientPlayerAttributesManager = require("./ClientPlayerAttributesManager")
 local clientPlaytimeRewardManager = require("./ClientPlaytimeRewardManager")
@@ -1417,6 +1418,27 @@ function ScreenGuiManager.init(self: ScreenGuiManager)
 		end
 	else
 		warn("ScreenGuiManager: NestsFrame missing from the HUD; no Nests button")
+	end
+
+	local restyleFrame: any = ScreenGui:FindFirstChild("RestyleFrame")
+	if restyleFrame then
+		restyleFrame.Visible = not clientFtueManager:isFtueActive()
+
+		clientFtueManager:getIsEnabledEvent():Connect(function(isFtueEnabled: boolean)
+			restyleFrame.Visible = not isFtueEnabled
+		end)
+
+		local restyleButton: any = restyleFrame:FindFirstChild("RestyleButton")
+		if restyleButton then
+			clientRestyleManager:setHudButton(restyleButton)
+			restyleButton.Activated:Connect(function()
+				clientRestyleManager:toggleDialog()
+			end)
+		else
+			warn("ScreenGuiManager: RestyleFrame has no RestyleButton button")
+		end
+	else
+		warn("ScreenGuiManager: RestyleFrame missing from the HUD; no Restyle button")
 	end
 
 	local featuredDealFrame: any = ScreenGui:FindFirstChild("FeaturedDealFrame")

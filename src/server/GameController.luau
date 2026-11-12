@@ -34,6 +34,7 @@ local Gem = require("./Gem")
 local hatchOddsManager = require("./HatchOddsManager")
 local nestManager = require("./NestManager")
 local nestWorldManager = require("./NestWorldManager")
+local restyleManager = require("./RestyleManager")
 local Crate = require("./Crate")
 local incomeManager = require("./IncomeManager")
 local indexManager = require("./IndexManager")
@@ -1909,6 +1910,11 @@ end
 -- Hatch Dragons Nests: NestManager checks every argument, since they come from the client
 function GameController.tryNestSet(self: GameController, player: Player, nestIndex: any, itemIdA: any, itemIdB: any): ()
 	nestManager:trySet(player, nestIndex, itemIdA, itemIdB)
+end
+
+-- Restyle: RestyleManager checks every argument, since they come from the client
+function GameController.tryRestyle(self: GameController, player: Player, itemId: any, part: any, payWith: any): ()
+	restyleManager:tryRestyle(player, itemId, part, payWith)
 end
 
 function GameController.tryNestBuy(self: GameController, player: Player): ()
@@ -3937,18 +3943,19 @@ function GameController.listenToRemoteEvents(self: GameController): ()
 
 	self:addRemoteEventHandler("TryDevTool", "tryDevTool")
 
-	-- the Nest remotes are made in Studio; without one the Nests have no player-facing path, so warn instead of failing startup
+	-- the Nest and Restyle remotes are made in Studio; without one that feature has no player-facing path, so warn instead of failing startup
 	for remoteName, funcName in {
 		TryNestSet = "tryNestSet",
 		TryNestBuy = "tryNestBuy",
 		TryNestClear = "tryNestClear",
 		TryNestHatch = "tryNestHatch",
 		TryNestDecide = "tryNestDecide",
+		TryRestyle = "tryRestyle",
 	} do
 		if RemoteEvents:FindFirstChild(remoteName) then
 			self:addRemoteEventHandler(remoteName, funcName)
 		else
-			warn("GameController: RemoteEvents." .. remoteName .. " is missing, so that Nest request is off")
+			warn("GameController: RemoteEvents." .. remoteName .. " is missing, so that request is off")
 		end
 	end
 	self:addRemoteEventHandler("TryCustomerTool", "tryCustomerTool")
@@ -4359,6 +4366,7 @@ local function initClasses(gameController: GameController): ()
 	Crop.initClass(deps)
 	ShadowDragon.initClass(deps)
 	nestManager.initClass(deps)
+	restyleManager.initClass(deps)
 	DragonEgg.initClass(deps)
 	Gem.initClass(deps)
 	Crystal.initClass(deps)

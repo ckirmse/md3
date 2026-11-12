@@ -1059,6 +1059,7 @@ export type GameController = {
 	tryRemoveTradeOffer: (self: GameController, player: Player, partnerPlayerName: any) -> (),
 	tryRequestBeginTrade: (self: GameController, player: Player, partnerPlayerName: any) -> (),
 	tryRespondBeginTrade: (self: GameController, player: Player, partnerPlayerName: any, doesAccept: any) -> (),
+	tryRestyle: (self: GameController, player: Player, itemId: any, part: any, payWith: any) -> (),
 	trySellDragons: (self: GameController, player: Player, sellType: any) -> (),
 	trySetBackpackIndex: (self: GameController, player: Player, itemId: any, index: number?) -> (),
 	trySetFtueStep: (self: GameController, player: Player, stepName: any) -> (),

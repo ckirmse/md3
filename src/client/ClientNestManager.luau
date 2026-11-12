@@ -7,18 +7,14 @@
 local ClientNestManager = {}
 ClientNestManager.__index = ClientNestManager
 
-local collectionService = game:GetService("CollectionService")
-local httpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 -- the RemoteEvents children only exist in Studio, so they are untyped here
 local RemoteEvents: any = ReplicatedStorage:WaitForChild("RemoteEvents")
 
-local Attributes = require("@game/ReplicatedStorage/Shared/Attributes")
-local GenomeValue = require("@game/ReplicatedStorage/Shared/GenomeValue")
 local HatchOdds = require("@game/ReplicatedStorage/Shared/HatchOdds")
 local PairOdds = require("@game/ReplicatedStorage/Shared/PairOdds")
-local Tags = require("@game/ReplicatedStorage/Shared/Tags")
 
+local ClientGenomeUi = require("./ClientGenomeUi")
 local clientHatchOdds = require("./ClientHatchOdds")
 local clientNestWorldManager = require("./ClientNestWorldManager")
 local ClientTicker = require("./ClientTicker")
@@ -30,31 +26,26 @@ local player = game:GetService("Players").LocalPlayer :: Player
 local DISPLAY_ORDER = 20
 local REVEAL_STEP_SEC = 0.25
 
-local PART_LABELS: { [string]: string } = {
-	headShape = "Head shape",
-	faceType = "Face",
-	headAttachment = "Head attachment",
-	backSpikes = "Back spikes",
-	wings = "Wings",
-	tailSpike = "Tail spike",
-	meshTexture = "Texture",
-}
+local PART_LABELS = ClientGenomeUi.PART_LABELS
+local RARITY_COLORS = ClientGenomeUi.RARITY_COLORS
+local formatPiece = ClientGenomeUi.formatPiece
+local getTierName = ClientGenomeUi.getTierName
+local describeGenome = ClientGenomeUi.describeGenome
+local formatTraits = ClientGenomeUi.formatTraits
+local formatPercent = ClientGenomeUi.formatPercent
+local capitalize = ClientGenomeUi.capitalize
+local colorText = ClientGenomeUi.colorText
+local findCandidates = ClientGenomeUi.findCandidates
+local setVisible = ClientGenomeUi.setVisible
+local setText = ClientGenomeUi.setText
+local clearGenerated = ClientGenomeUi.clearGenerated
+local cloneTemplate = ClientGenomeUi.cloneTemplate
 
 local WEATHER_LABELS: { [string]: string } = {
 	rain = "Rain",
 	heatwave = "Heatwave",
 	bloomStorm = "Bloom Storm",
 	thunderstorm = "Thunderstorm",
-}
-
--- piece rarities and dragon bands share one palette
-local RARITY_COLORS: { [string]: Color3 } = {
-	common = Color3.fromRGB(190, 190, 190),
-	uncommon = Color3.fromRGB(90, 220, 90),
-	rare = Color3.fromRGB(70, 150, 255),
-	epic = Color3.fromRGB(190, 90, 255),
-	legendary = Color3.fromRGB(255, 160, 40),
-	mythic = Color3.fromRGB(255, 70, 90),
 }
 
 type NestsState = {
@@ -64,7 +55,7 @@ type NestsState = {
 	nests: { any }, -- one per slot: { isEmpty = true } or { parentA, parentB, nextLayAt, layTimeSec, eggs }
 }
 
-type Candidate = { itemId: number, genome: any }
+type Candidate = ClientGenomeUi.Candidate
 
 -- the gui's shape only exists in Studio, so its instances are untyped here
 type ClientNestManagerFields = {
@@ -88,43 +79,6 @@ type ClientNestManagerFields = {
 
 export type ClientNestManager = typeof(setmetatable({} :: ClientNestManagerFields, ClientNestManager))
 
-local function formatPiece(pieceId: string): (string, string)
-	local odds = clientHatchOdds:getOdds()
-	local piece = if odds then odds.catalog.byId[pieceId] else nil
-	if not piece then
-		return pieceId, "common"
-	end
-	local element = piece.element:sub(1, 1):upper() .. piece.element:sub(2)
-	return ("%s %s"):format(element, (PART_LABELS[piece.part] or piece.part):lower()), piece.rarity
-end
-
-local function getBandName(genome: any): string
-	local odds = clientHatchOdds:getOdds()
-	if not odds then
-		return "common"
-	end
-	return GenomeValue.getBand(odds, genome)
-end
-
-local function getTierName(genome: any): string
-	local odds = clientHatchOdds:getOdds()
-	local tier = if odds then odds.config.tiers[genome.tier] else nil
-	return if tier then tier.name else "?"
-end
-
-local function describeGenome(genome: any): string
-	return ("%s  %s  (%s)"):format(genome.code, getBandName(genome), getTierName(genome))
-end
-
--- { "soaked", "toasty" } as "Soaked + Toasty"
-local function formatTraits(traits: { string }): string
-	local names = {}
-	for _, trait in traits do
-		table.insert(names, trait:sub(1, 1):upper() .. trait:sub(2))
-	end
-	return table.concat(names, " + ")
-end
-
 -- 50000 as "50,000"
 local function formatNumber(value: number): string
 	local text = tostring(math.floor(value))
@@ -138,54 +92,6 @@ end
 local function formatDuration(seconds: number): string
 	seconds = math.max(0, math.ceil(seconds))
 	return ("%d:%02d"):format(seconds // 60, seconds % 60)
-end
-
--- the bred dragons the player has, in the backpack, in hand or in the world: the shadow parts carry the genome as an attribute
-local function findCandidates(): { Candidate }
-	local candidates: { Candidate } = {}
-	for _, shadow in collectionService:GetTagged(Tags.SHADOW_DRAGON) do
-		local genomeJson = shadow:GetAttribute(Attributes.DRAGON_GENOME)
-		local itemId = shadow:GetAttribute(Attributes.ITEM_ID)
-		if shadow:GetAttribute(Attributes.USER_ID) == player.UserId and type(genomeJson) == "string" and type(itemId) == "number" then
-			local isDecoded, genome = pcall(httpService.JSONDecode, httpService, genomeJson)
-			if isDecoded and type(genome) == "table" then
-				table.insert(candidates, { itemId = itemId, genome = genome })
-			end
-		end
-	end
-	table.sort(candidates, function(a: Candidate, b: Candidate)
-		return a.itemId < b.itemId
-	end)
-	return candidates
-end
-
-local function setVisible(inst: any?, isVisible: boolean)
-	if inst then
-		inst.Visible = isVisible
-	end
-end
-
-local function setText(inst: any?, text: string)
-	if inst then
-		inst.Text = text
-	end
-end
-
-local function clearGenerated(container: any, template: any)
-	for _, child in container:GetChildren() do
-		if child ~= template and child:IsA("GuiObject") and child:GetAttribute("Generated") then
-			child:Destroy()
-		end
-	end
-end
-
-local function cloneTemplate(template: any, container: any, name: string): any
-	local clone = template:Clone()
-	clone.Name = name
-	clone.Visible = true
-	clone:SetAttribute("Generated", true)
-	clone.Parent = container
-	return clone
 end
 
 local function countEggs(state: NestsState?): number
@@ -321,23 +227,6 @@ function ClientNestManager.setData(self: ClientNestManager, data: any)
 end
 
 -- ===== the picker =====
-
--- 0.0312 as "3.1%"; chances too small to show are "<0.1%", with the "<" escaped because the text is rich text
-local function formatPercent(chance: number): string
-	if chance > 0 and chance < 0.001 then
-		return "&lt;0.1%"
-	end
-	return ("%.1f%%"):format(chance * 100)
-end
-
-local function capitalize(text: string): string
-	return text:sub(1, 1):upper() .. text:sub(2)
-end
-
-local function colorText(text: string, rarity: string): string
-	local color = RARITY_COLORS[rarity] or Color3.new(1, 1, 1)
-	return ('<font color="#%s">%s</font>'):format(color:ToHex(), text)
-end
 
 -- the lines of the pairing screen's odds panel: the baby's mix, rarity, value, size, then every part's and the mutation's chances
 local function buildOddsLines(odds: HatchOdds.Odds, result: PairOdds.Result, weather: string?): { string }

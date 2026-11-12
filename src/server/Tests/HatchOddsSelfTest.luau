@@ -13,6 +13,7 @@ local HatchWeather = require("@game/ReplicatedStorage/Shared/HatchWeather")
 local Enums = require("@game/ReplicatedStorage/Shared/Enums")
 local NestMath = require("@game/ReplicatedStorage/Shared/NestMath")
 local PairOdds = require("@game/ReplicatedStorage/Shared/PairOdds")
+local Restyle = require("@game/ReplicatedStorage/Shared/Restyle")
 
 local HatchOddsSpec = require("./HatchOddsSpec")
 
@@ -513,6 +514,54 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 	broken.weatherTraits = { hail = { trait = "icy" } } :: any
 	if #HatchOdds.validate(broken) < 3 then
 		table.insert(failures, "a config with a bad eggCap, chance and weather was not rejected enough")
+	end
+
+	-- Restyle: tier x 2^restyles in tokens (spec: a Great Wyrm pays 7, 14, 28), Diamonds at the pack rate, and the piece always changes
+	local restyleDragon = makeGenome(odds, "fire", "uncommon")
+	check("restyle cost, Wyrmling first", Restyle.getTokenCost(restyleDragon), 1, 0)
+	restyleDragon.tier = 7
+	check("restyle cost, Great Wyrm first", Restyle.getTokenCost(restyleDragon), 7, 0)
+	restyleDragon.restyleCount = 1
+	check("restyle cost, Great Wyrm second", Restyle.getTokenCost(restyleDragon), 14, 0)
+	restyleDragon.restyleCount = 2
+	check("restyle cost, Great Wyrm third", Restyle.getTokenCost(restyleDragon), 28, 0)
+	check(
+		"restyle Diamond cost",
+		Restyle.getDiamondCost(odds, restyleDragon),
+		28 * (config.restyleDiamondsPerToken or HatchOdds.DEFAULT_RESTYLE_DIAMONDS_PER_TOKEN),
+		0
+	)
+	restyleDragon.tier = 1
+	restyleDragon.restyleCount = 0
+	local currentWings = restyleDragon.pieces.wings
+	local wingChances = Restyle.getChances(odds, restyleDragon, "wings")
+	local wingTotal = 0
+	for _, entry in wingChances do
+		wingTotal += entry.chance
+		local piece = odds.catalog.byId[entry.id]
+		if entry.id == currentWings then
+			table.insert(failures, "the restyle chances included the current piece")
+		elseif not piece or piece.element ~= "fire" then
+			table.insert(failures, "a pure Fire dragon could restyle into " .. entry.id)
+		end
+	end
+	check("restyle chances add up", wingTotal, 1, 0.0001)
+	check("restyle offers the other 5 Fire wings", #wingChances, 5, 0)
+	local sameCount = 0
+	for _ = 1, 300 do
+		if Restyle.roll(odds, restyleDragon, "wings", rng) == currentWings then
+			sameCount += 1
+		end
+	end
+	check("a restyle never rolls the current piece", sameCount, 0, 0)
+	local restyledGenome = Restyle.apply(restyleDragon, "wings", wingChances[1].id)
+	check("restyle count goes up", restyledGenome.restyleCount, 1, 0)
+	if restyledGenome.pieces.wings ~= wingChances[1].id or restyleDragon.pieces.wings ~= currentWings then
+		table.insert(failures, "restyle changed the wrong genome or the wrong piece")
+	end
+	if restyledGenome.mutation ~= restyleDragon.mutation or restyledGenome.size ~= restyleDragon.size or restyledGenome.tier ~= restyleDragon.tier
+		or restyledGenome.uuid ~= restyleDragon.uuid then
+		table.insert(failures, "restyle changed the mutation, size, tier or uuid")
 	end
 
 	-- a fresh roll has no parents, keeps its mix and tier, and only rolls pieces of the elements it has
