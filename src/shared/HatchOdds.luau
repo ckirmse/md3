@@ -26,7 +26,6 @@ export type Tier = {
 	marketPrice: number,
 	baseValue: number,
 	layTimeSec: number,
-	growTimeSec: number,
 	baseScale: number,
 	dragonLevel: number, -- the "Dragon Level N" legacy item whose model this tier is built from
 }
@@ -43,6 +42,9 @@ export type Band = { name: DragonBand, minScore: number }
 
 -- a piece as authored: its part and element are the keys it sits under in Config.pieces
 export type PieceRow = { id: string, rarity: PieceRarity, weight: number }
+
+-- the trait a weather gives waiting eggs, and the element whose 50%+ share doubles the chance (nil for none)
+export type WeatherTrait = { trait: string, element: Element? }
 
 export type Config = {
 	version: number,
@@ -79,6 +81,12 @@ export type Config = {
 	nestMaxCount: number, -- the most personal Nests, however they were gained
 	nestGoldPrices: { number }, -- Gold for each Nest bought with Gold, in order
 	nestParentScale: number, -- how big the parents look on a Nest, 1 is their original size
+	-- Optional: when a field is missing the DEFAULT_ value below is used, so these can be added to the Studio table whenever
+	eggCap: number?, -- the most eggs that wait in one Nest; a full Nest stops laying
+	weatherTraitChancePerMinute: number?, -- per waiting egg, per minute of weather
+	weatherTraitMatchMult: number?, -- the chance is multiplied by this for an egg of the matching element
+	weatherTraitMatchShare: number?, -- the element share that counts as matching
+	weatherTraits: { [Weather]: WeatherTrait }?, -- weather -> trait; a weather with no entry gives no trait
 }
 
 -- Structural names: the code branches on these, so they stay out of the designer's table.
@@ -98,6 +106,21 @@ local PARTS: { Part } = {
 local PIECE_RARITIES: { PieceRarity } = { "common", "uncommon", "rare", "legendary" }
 local DRAGON_BANDS: { DragonBand } = { "common", "uncommon", "rare", "epic", "legendary", "mythic" }
 
+local WEATHERS: { Weather } = { "rain", "heatwave", "bloomStorm", "thunderstorm" }
+
+-- the values used while the Studio table leaves an optional Config field out (the spec's numbers)
+HatchOdds.DEFAULT_EGG_CAP = 3
+HatchOdds.DEFAULT_WEATHER_TRAIT_CHANCE_PER_MINUTE = 0.02
+HatchOdds.DEFAULT_WEATHER_TRAIT_MATCH_MULT = 2
+HatchOdds.DEFAULT_WEATHER_TRAIT_MATCH_SHARE = 0.5
+HatchOdds.DEFAULT_WEATHER_TRAITS = {
+	rain = { trait = "soaked", element = "water" },
+	heatwave = { trait = "toasty", element = "fire" },
+	bloomStorm = { trait = "flowered", element = "nature" },
+	thunderstorm = { trait = "charged", element = nil },
+} :: { [Weather]: WeatherTrait }
+
+HatchOdds.WEATHERS = WEATHERS
 HatchOdds.ELEMENTS = ELEMENTS
 HatchOdds.PARTS = PARTS
 HatchOdds.PIECE_RARITIES = PIECE_RARITIES
@@ -226,12 +249,41 @@ function HatchOdds.validate(config: any): { string }
 		end
 	end
 
+	-- optional fields: absent is fine, present must make sense
+	if config.eggCap ~= nil and (type(config.eggCap) ~= "number" or config.eggCap < 1 or config.eggCap ~= math.floor(config.eggCap)) then
+		problem("HatchOdds: eggCap must be a whole number of at least 1")
+	end
+	for _, field in { "weatherTraitChancePerMinute", "weatherTraitMatchShare" } do
+		local value = config[field]
+		if value ~= nil and (not isFiniteNonNegative(value) or value > 1) then
+			problem(("HatchOdds: %s must be a number from 0 to 1"):format(field))
+		end
+	end
+	if config.weatherTraitMatchMult ~= nil and not isFiniteNonNegative(config.weatherTraitMatchMult) then
+		problem("HatchOdds: weatherTraitMatchMult must be a non-negative number")
+	end
+	if config.weatherTraits ~= nil then
+		if type(config.weatherTraits) ~= "table" then
+			problem("HatchOdds: weatherTraits must be a table of weathers")
+		else
+			for weather, def in config.weatherTraits do
+				if not table.find(WEATHERS, weather) then
+					problem(("HatchOdds: weatherTraits has an unknown weather %s"):format(tostring(weather)))
+				elseif type(def) ~= "table" or type(def.trait) ~= "string" or def.trait == "" then
+					problem(("HatchOdds: weatherTraits.%s needs a trait name"):format(weather))
+				elseif def.element ~= nil and not table.find(ELEMENTS, def.element) then
+					problem(("HatchOdds: weatherTraits.%s has an unknown element %s"):format(weather, tostring(def.element)))
+				end
+			end
+		end
+	end
+
 	local tiers = config.tiers
 	if type(tiers) ~= "table" or #tiers == 0 then
 		problem("HatchOdds: tiers must list at least one tier")
 	else
 		for index, tier in tiers do
-			for _, field in { "segments", "marketPrice", "baseValue", "layTimeSec", "growTimeSec", "baseScale", "dragonLevel" } do
+			for _, field in { "segments", "marketPrice", "baseValue", "layTimeSec", "baseScale", "dragonLevel" } do
 				if not isFiniteNonNegative(tier[field]) then
 					problem(("HatchOdds: tiers[%d].%s must be a non-negative number"):format(index, field))
 				end

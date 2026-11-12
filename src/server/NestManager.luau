@@ -375,7 +375,7 @@ function NestManager.tickPlayer(self: NestManager, player: Player, playerData: a
 	local changedCount = 0
 	for _, nest in playerData:getNests() do
 		changedCount += #NestMath.advance(odds, nest, params)
-		changedCount += NestMath.growTraits(nest, weather, elapsedSec or TICK_SEC, self.random)
+		changedCount += NestMath.growTraits(odds, nest, weather, elapsedSec or TICK_SEC, self.random)
 	end
 	return changedCount
 end

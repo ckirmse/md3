@@ -11,8 +11,10 @@ local HatchWeather = require("./HatchWeather")
 
 local NestMath = {}
 
--- the most eggs that wait in one Nest; a full Nest stops laying until one is taken
-NestMath.EGG_CAP = 3
+-- the most eggs that wait in one Nest (the config's eggCap); a full Nest stops laying until one is taken
+function NestMath.getEggCap(odds: HatchOdds.Odds): number
+	return odds.config.eggCap or HatchOdds.DEFAULT_EGG_CAP
+end
 
 export type Egg = {
 	genome: Genome.Genome, -- fully rolled at laying, so a skip or a disconnect can't reroll it
@@ -69,7 +71,14 @@ function NestMath.advance(odds: HatchOdds.Odds, nest: Nest, params: AdvanceParam
 	local laid: { Egg } = {}
 	local layTimeSec = NestMath.getLayTimeSec(odds, nest)
 
-	while #nest.eggs < NestMath.EGG_CAP do
+	local eggCap = NestMath.getEggCap(odds)
+
+	-- a Nest saved full has no timer; if the cap has been raised since, it starts laying again from now
+	if nest.nextLayAt == nil and #nest.eggs < eggCap then
+		nest.nextLayAt = params.now + layTimeSec
+	end
+
+	while #nest.eggs < eggCap do
 		local dueAt = nest.nextLayAt
 		if dueAt == nil or dueAt > params.now then
 			break
@@ -94,7 +103,7 @@ function NestMath.advance(odds: HatchOdds.Odds, nest: Nest, params: AdvanceParam
 		nest.nextLayAt = dueAt + layTimeSec
 	end
 
-	if #nest.eggs >= NestMath.EGG_CAP then
+	if #nest.eggs >= eggCap then
 		nest.nextLayAt = nil
 	end
 	return laid
@@ -102,15 +111,18 @@ end
 
 -- Gives each waiting egg its chance at the weather's trait for dtSec of weather; returns how many eggs gained one.
 -- Traits are rolled on waiting eggs only, so a full Nest is the gamble the spec describes.
-function NestMath.growTraits(nest: Nest, weather: HatchOdds.Weather?, dtSec: number, rng: Random): number
+function NestMath.growTraits(odds: HatchOdds.Odds, nest: Nest, weather: HatchOdds.Weather?, dtSec: number, rng: Random): number
 	if not weather then
 		return 0
 	end
-	local trait = HatchWeather.getTraitDef(weather).trait
+	local def = HatchWeather.getTraitDef(odds.config, weather)
+	if not def then
+		return 0
+	end
 	local gained = 0
 	for _, egg in nest.eggs do
-		if rng:NextNumber() < HatchWeather.getTraitChance(egg.genome, weather, dtSec) then
-			table.insert(egg.genome.traits, trait)
+		if rng:NextNumber() < HatchWeather.getTraitChance(odds.config, egg.genome, weather, dtSec) then
+			table.insert(egg.genome.traits, def.trait)
 			gained += 1
 		end
 	end
@@ -120,7 +132,7 @@ end
 -- Removes the egg at the index. A Nest that was full starts its next lay time now, since it was not laying while it waited.
 function NestMath.takeEgg(odds: HatchOdds.Odds, nest: Nest, index: number, now: number): Egg?
 	local egg = table.remove(nest.eggs, index)
-	if egg and nest.nextLayAt == nil and #nest.eggs < NestMath.EGG_CAP then
+	if egg and nest.nextLayAt == nil and #nest.eggs < NestMath.getEggCap(odds) then
 		nest.nextLayAt = now + NestMath.getLayTimeSec(odds, nest)
 	end
 	return egg

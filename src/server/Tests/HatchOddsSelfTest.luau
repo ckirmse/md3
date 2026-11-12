@@ -403,12 +403,12 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 	end
 	local waterEgg = makeGenome(odds, "water", "common")
 	local fireEgg = makeGenome(odds, "fire", "common")
-	check("trait chance, matching element", HatchWeather.getTraitChance(waterEgg, "rain", 60), 0.04, 0.0001)
-	check("trait chance, other element", HatchWeather.getTraitChance(fireEgg, "rain", 60), 0.02, 0.0001)
-	check("trait chance, half a minute", HatchWeather.getTraitChance(fireEgg, "rain", 30), 1 - 0.98 ^ 0.5, 0.0001)
-	check("trait chance, thunderstorm has no matching element", HatchWeather.getTraitChance(waterEgg, "thunderstorm", 60), 0.02, 0.0001)
+	check("trait chance, matching element", HatchWeather.getTraitChance(config, waterEgg, "rain", 60), 0.04, 0.0001)
+	check("trait chance, other element", HatchWeather.getTraitChance(config, fireEgg, "rain", 60), 0.02, 0.0001)
+	check("trait chance, half a minute", HatchWeather.getTraitChance(config, fireEgg, "rain", 30), 1 - 0.98 ^ 0.5, 0.0001)
+	check("trait chance, thunderstorm has no matching element", HatchWeather.getTraitChance(config, waterEgg, "thunderstorm", 60), 0.02, 0.0001)
 	waterEgg.traits = { "soaked" }
-	check("trait chance, already has it", HatchWeather.getTraitChance(waterEgg, "rain", 60), 0, 0)
+	check("trait chance, already has it", HatchWeather.getTraitChance(config, waterEgg, "rain", 60), 0, 0)
 
 	local traitParentA = makeGenome(odds, "fire", "common")
 	local traitParentB = makeGenome(odds, "fire", "common")
@@ -416,9 +416,9 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 	local traitNest = NestMath.create(odds, traitParentA, traitParentB, 1, 0)
 	if traitNest then
 		NestMath.advance(odds, traitNest, { now = 100000, rng = rng, makeUuid = makeUuid })
-		check("no weather, no traits", NestMath.growTraits(traitNest, nil, 6000, rng), 0, 0)
-		check("a long rain gives every egg the trait", NestMath.growTraits(traitNest, "rain", 100000, rng), #traitNest.eggs, 0)
-		check("a second rain gives nothing new", NestMath.growTraits(traitNest, "rain", 100000, rng), 0, 0)
+		check("no weather, no traits", NestMath.growTraits(odds, traitNest, nil, 6000, rng), 0, 0)
+		check("a long rain gives every egg the trait", NestMath.growTraits(odds, traitNest, "rain", 100000, rng), #traitNest.eggs, 0)
+		check("a second rain gives nothing new", NestMath.growTraits(odds, traitNest, "rain", 100000, rng), 0, 0)
 		for _, egg in traitNest.eggs do
 			if #egg.genome.traits ~= 1 or egg.genome.traits[1] ~= "soaked" then
 				table.insert(failures, "an egg's traits were not just soaked")
@@ -426,6 +426,49 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 		end
 	else
 		table.insert(failures, "NestMath.create returned nil for the weather trait test")
+	end
+
+	-- optional config fields: a table that leaves them out uses the defaults, one that sets them wins, a bad one is a problem
+	check("default egg cap", NestMath.getEggCap(odds), HatchOdds.DEFAULT_EGG_CAP, 0)
+	local custom = table.clone(config)
+	custom.eggCap = 5
+	custom.weatherTraitChancePerMinute = 0.5
+	custom.weatherTraits = { rain = { trait = "drenched", element = "fire" } }
+	local customOdds = HatchOdds.build(custom)
+	check("custom egg cap", NestMath.getEggCap(customOdds), 5, 0)
+	check("custom trait chance, element now fire", HatchWeather.getTraitChance(custom, makeGenome(odds, "fire", "common"), "rain", 60), 1, 0.0001)
+	check("custom trait chance, other element", HatchWeather.getTraitChance(custom, makeGenome(odds, "water", "common"), "rain", 60), 0.5, 0.0001)
+	check("custom table has no heatwave trait", HatchWeather.getTraitChance(custom, makeGenome(odds, "fire", "common"), "heatwave", 60), 0, 0)
+	if #HatchOdds.validate(custom) > 0 then
+		table.insert(failures, "a valid custom config was rejected: " .. table.concat(HatchOdds.validate(custom), "; "))
+	end
+	-- a Nest saved full restarts its timer when the cap is raised, and fills to the new cap
+	local capParentA = makeGenome(odds, "fire", "common")
+	local capParentB = makeGenome(odds, "fire", "common")
+	capParentB.uuid = "cap-b"
+	local capNest = NestMath.create(odds, capParentA, capParentB, 1, 0)
+	if capNest then
+		NestMath.advance(odds, capNest, { now = 100000, rng = rng, makeUuid = makeUuid })
+		check("the Nest is full at the default cap", #capNest.eggs, 3, 0)
+		if capNest.nextLayAt ~= nil then
+			table.insert(failures, "a full Nest still had a timer")
+		end
+		NestMath.advance(customOdds, capNest, { now = 100000, rng = rng, makeUuid = makeUuid })
+		if capNest.nextLayAt == nil then
+			table.insert(failures, "raising the cap did not restart a full Nest's timer")
+		end
+		NestMath.advance(customOdds, capNest, { now = 200000, rng = rng, makeUuid = makeUuid })
+		check("the Nest fills to the raised cap", #capNest.eggs, 5, 0)
+	else
+		table.insert(failures, "NestMath.create returned nil for the cap test")
+	end
+
+	local broken = table.clone(config)
+	broken.eggCap = 0
+	broken.weatherTraitChancePerMinute = 2
+	broken.weatherTraits = { hail = { trait = "icy" } } :: any
+	if #HatchOdds.validate(broken) < 3 then
+		table.insert(failures, "a config with a bad eggCap, chance and weather was not rejected enough")
 	end
 
 	-- a fresh roll has no parents, keeps its mix and tier, and only rolls pieces of the elements it has
