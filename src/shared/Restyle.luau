@@ -19,7 +19,8 @@ end
 
 -- Diamonds for the same restyle, at the token pack rate
 function Restyle.getDiamondCost(odds: HatchOdds.Odds, genome: Genome.Genome): number
-	local rate = odds.config.restyleDiamondsPerToken or HatchOdds.DEFAULT_RESTYLE_DIAMONDS_PER_TOKEN
+	local economy = odds.config.economy
+	local rate = if economy and economy.restyleDiamondsPerToken then economy.restyleDiamondsPerToken else HatchOdds.DEFAULT_RESTYLE_DIAMONDS_PER_TOKEN
 	return Restyle.getTokenCost(genome) * rate
 end
 

@@ -109,7 +109,7 @@ function GenomeValue.getVisibleScale(odds: HatchOdds.Odds, genome: Genome.Genome
 	return tier.baseScale * within * (if genome.isGiant then config.giantVisible else 1)
 end
 
--- tier base x the parents' average band x speed boosts; the boosts multiply together and never go below layBoostFloor
+-- tier base x the parents' average band x speed boosts; the boosts multiply together and never go below nests.layBoostFloor
 function GenomeValue.getLayTimeSec(odds: HatchOdds.Odds, tier: number, averageBand: HatchOdds.DragonBand, speedBoost: number): number
 	local config = odds.config
 	local tierData = config.tiers[tier]
@@ -117,7 +117,7 @@ function GenomeValue.getLayTimeSec(odds: HatchOdds.Odds, tier: number, averageBa
 		warn("GenomeValue: unknown tier", tier)
 		return 0
 	end
-	return tierData.layTimeSec * config.layTimeMult[averageBand] * math.max(speedBoost, config.layBoostFloor)
+	return tierData.layTimeSec * config.nests.layTimeMult[averageBand] * math.max(speedBoost, config.nests.layBoostFloor)
 end
 
 return GenomeValue

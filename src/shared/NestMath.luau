@@ -13,9 +13,9 @@ local HatchWeather = require("./HatchWeather")
 
 local NestMath = {}
 
--- the most eggs that wait in one Nest (the config's eggCap); a full Nest stops laying until one is taken
+-- the most eggs that wait in one Nest (the config's nests.eggCap); a full Nest stops laying until one is taken
 function NestMath.getEggCap(odds: HatchOdds.Odds): number
-	return odds.config.eggCap or HatchOdds.DEFAULT_EGG_CAP
+	return odds.config.nests.eggCap or HatchOdds.DEFAULT_EGG_CAP
 end
 
 export type Egg = {

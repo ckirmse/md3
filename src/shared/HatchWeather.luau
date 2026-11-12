@@ -1,7 +1,7 @@
 --!strict
 
 -- The Hatch Dragons side of the world's weather: which game weather counts, the trait each one gives waiting eggs, and the chance of it.
--- The trait table and chances are optional Control/HatchOdds fields (the spec's numbers when absent); the trait bonuses are there too.
+-- The trait table and chances are the optional weather section of Control/HatchSystems (the spec's numbers when absent); the trait bonuses are in Control/HatchOdds.
 
 local Enums = require("./Enums")
 local Genome = require("./Genome")
@@ -18,11 +18,12 @@ export type Settings = {
 }
 
 function HatchWeather.getSettings(config: HatchOdds.Config): Settings
+	local section: HatchOdds.WeatherConfig = config.weather or {}
 	return {
-		chancePerMinute = config.weatherTraitChancePerMinute or HatchOdds.DEFAULT_WEATHER_TRAIT_CHANCE_PER_MINUTE,
-		matchMult = config.weatherTraitMatchMult or HatchOdds.DEFAULT_WEATHER_TRAIT_MATCH_MULT,
-		matchShare = config.weatherTraitMatchShare or HatchOdds.DEFAULT_WEATHER_TRAIT_MATCH_SHARE,
-		traits = config.weatherTraits or HatchOdds.DEFAULT_WEATHER_TRAITS,
+		chancePerMinute = section.traitChancePerMinute or HatchOdds.DEFAULT_WEATHER_TRAIT_CHANCE_PER_MINUTE,
+		matchMult = section.traitMatchMult or HatchOdds.DEFAULT_WEATHER_TRAIT_MATCH_MULT,
+		matchShare = section.traitMatchShare or HatchOdds.DEFAULT_WEATHER_TRAIT_MATCH_SHARE,
+		traits = section.traits or HatchOdds.DEFAULT_WEATHER_TRAITS,
 	}
 end
 

@@ -84,12 +84,14 @@ function HatchOddsSpec.build(): HatchOdds.Config
 		tierJumpTotal = 10000,
 		tierJumpBaseWeight = 50,
 		tierJumpBonus = { common = 0, uncommon = 10, rare = 25, epic = 50, legendary = 100, mythic = 150 },
-		layTimeMult = { common = 1.0, uncommon = 1.1, rare = 1.25, epic = 1.5, legendary = 2, mythic = 2.5 },
-		layBoostFloor = 0.5,
-		nestBaseCount = 2,
-		nestMaxCount = 6,
-		nestGoldPrices = { 5000, 50000 },
-		nestParentScale = 1,
+		nests = {
+			baseCount = 2,
+			maxCount = 6,
+			goldPrices = { 5000, 50000 },
+			parentScale = 1,
+			layTimeMult = { common = 1.0, uncommon = 1.1, rare = 1.25, epic = 1.5, legendary = 2, mythic = 2.5 },
+			layBoostFloor = 0.5,
+		},
 	}
 end
 

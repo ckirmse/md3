@@ -1098,7 +1098,7 @@ end
 function DevTools.grantGenomeDragon(self: DevTools, player: Player, element: any, tier: any, isPlaced: any)
 	local odds = hatchOddsManager:getOdds()
 	if not odds then
-		warn("grantGenomeDragon: Control/HatchOdds is invalid")
+		warn("grantGenomeDragon: the Hatch Control modules are invalid")
 		return
 	end
 	if type(tier) ~= "number" or tier ~= math.floor(tier) or tier < 1 or tier > #odds.config.tiers then
@@ -1265,7 +1265,7 @@ end
 function DevTools.dumpGenomeDragons(self: DevTools, player: Player)
 	local odds = hatchOddsManager:getOdds()
 	if not odds then
-		warn("dumpGenomeDragons: Control/HatchOdds is invalid")
+		warn("dumpGenomeDragons: the Hatch Control modules are invalid")
 		return
 	end
 

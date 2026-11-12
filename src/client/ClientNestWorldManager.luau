@@ -106,7 +106,7 @@ end
 -- stands a parent on its socket: facing the way the socket faces, centered on it, with its lowest point at the socket's height
 local function placeParent(dragon: any, socket: BasePart)
 	local scale = clientHatchOdds:getOdds()
-	local parentScale = if scale then scale.config.nestParentScale else 1
+	local parentScale = if scale then scale.config.nests.parentScale else 1
 	if parentScale ~= 1 then
 		dragon:ScaleTo(parentScale)
 	end

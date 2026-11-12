@@ -90,8 +90,35 @@ local function scoreDistribution(odds: HatchOdds.Odds, shares: Genome.Shares, pa
 	return distribution
 end
 
-function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
-	local failures = HatchOdds.validate(liveConfig)
+-- the three Hatch Control modules put together the way HatchOddsManager does; a message instead when one is missing
+local function loadLiveConfig(): (any, string?)
+	local control: any = game:GetService("ServerScriptService"):FindFirstChild("GameData")
+	control = if control then control:FindFirstChild("Control") else nil
+	if not control then
+		return nil, "ServerScriptService.GameData.Control is missing"
+	end
+	local data: { [string]: any } = {}
+	for _, name in { "HatchOdds", "HatchPieces", "HatchSystems" } do
+		local module = control:FindFirstChild(name)
+		if not module then
+			return nil, "Control/" .. name .. " is missing"
+		end
+		data[name] = require(module)
+	end
+	return HatchOdds.assemble(data.HatchOdds, data.HatchPieces, data.HatchSystems), nil
+end
+
+-- Pass nothing to check the live Control modules, or an assembled Config to check that. Returns the failures, empty when all pass.
+function HatchOddsSelfTest.run(liveConfig: any?): { string }
+	local live = liveConfig
+	if live == nil then
+		local loaded, message = loadLiveConfig()
+		if not loaded then
+			return { message :: string }
+		end
+		live = loaded
+	end
+	local failures = HatchOdds.validate(live)
 	if #failures > 0 then
 		return failures
 	end
@@ -462,9 +489,9 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 	-- optional config fields: a table that leaves them out uses the defaults, one that sets them wins, a bad one is a problem
 	check("default egg cap", NestMath.getEggCap(odds), HatchOdds.DEFAULT_EGG_CAP, 0)
 	local custom = table.clone(config)
-	custom.eggCap = 5
-	custom.weatherTraitChancePerMinute = 0.5
-	custom.weatherTraits = { rain = { trait = "drenched", element = "fire" } }
+	custom.nests = table.clone(config.nests)
+	custom.nests.eggCap = 5
+	custom.weather = { traitChancePerMinute = 0.5, traits = { rain = { trait = "drenched", element = "fire" } } }
 	local customOdds = HatchOdds.build(custom)
 	check("custom egg cap", NestMath.getEggCap(customOdds), 5, 0)
 	check("custom trait chance, element now fire", HatchWeather.getTraitChance(custom, makeGenome(odds, "fire", "common"), "rain", 60), 1, 0.0001)
@@ -494,11 +521,23 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 		table.insert(failures, "NestMath.create returned nil for the cap test")
 	end
 
-	check("default restyle Diamond rate", config.restyleDiamondsPerToken or HatchOdds.DEFAULT_RESTYLE_DIAMONDS_PER_TOKEN, 5, 0)
+	check("default restyle Diamond rate", HatchOdds.DEFAULT_RESTYLE_DIAMONDS_PER_TOKEN, 5, 0)
 	local badRate = table.clone(config)
-	badRate.restyleDiamondsPerToken = 0
+	badRate.economy = { restyleDiamondsPerToken = 0 }
 	if #HatchOdds.validate(badRate) < 1 then
 		table.insert(failures, "a restyleDiamondsPerToken of 0 was not rejected")
+	end
+
+	-- the Control modules are assembled into one Config, and a missing nests section is reported under its file's name
+	local assembled = HatchOdds.assemble({ version = 1 }, { pieces = { marker = true } }, { nests = config.nests, weather = {}, economy = {} })
+	if not assembled.pieces or not assembled.pieces.marker or assembled.nests ~= config.nests or assembled.weather == nil or assembled.economy == nil then
+		table.insert(failures, "HatchOdds.assemble did not put the three modules together")
+	end
+	local noNests = table.clone(config)
+	noNests.nests = nil :: any
+	local noNestsProblems = HatchOdds.validate(noNests)
+	if #noNestsProblems ~= 1 or not string.find(noNestsProblems[1], "HatchSystems: nests", 1, true) then
+		table.insert(failures, "a missing nests section was not reported as a HatchSystems problem: " .. table.concat(noNestsProblems, "; "))
 	end
 
 	-- genomes saved before restyles existed count as never restyled
@@ -509,9 +548,9 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 	check("old genome restyle count", oldGenome.restyleCount, 0, 0)
 
 	local broken = table.clone(config)
-	broken.eggCap = 0
-	broken.weatherTraitChancePerMinute = 2
-	broken.weatherTraits = { hail = { trait = "icy" } } :: any
+	broken.nests = table.clone(config.nests)
+	broken.nests.eggCap = 0
+	broken.weather = { traitChancePerMinute = 2, traits = { hail = { trait = "icy" } } :: any }
 	if #HatchOdds.validate(broken) < 3 then
 		table.insert(failures, "a config with a bad eggCap, chance and weather was not rejected enough")
 	end
@@ -528,7 +567,7 @@ function HatchOddsSelfTest.run(liveConfig: HatchOdds.Config): { string }
 	check(
 		"restyle Diamond cost",
 		Restyle.getDiamondCost(odds, restyleDragon),
-		28 * (config.restyleDiamondsPerToken or HatchOdds.DEFAULT_RESTYLE_DIAMONDS_PER_TOKEN),
+		28 * HatchOdds.DEFAULT_RESTYLE_DIAMONDS_PER_TOKEN,
 		0
 	)
 	restyleDragon.tier = 1

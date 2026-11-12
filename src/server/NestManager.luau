@@ -6,8 +6,8 @@
 -- or keeps it, which creates a ShadowDragon carrying the genome. Eggs laid while offline are caught up when the player joins.
 -- The client talks through TryNestSet, TryNestClear, TryNestHatch and TryNestDecide (created in Studio) and hears NotifyNests (the whole state,
 -- pushed after every change and every laid egg) and NotifyNestReveal. Eggs are named by their genome uuid, so a stale click can't hit another egg.
--- The Nest count is the config's nestBaseCount plus the Nests bought with Gold (nestGoldPrices, in order) and the bonus slots from other
--- sources, up to nestMaxCount; a Nest that holds dragons is never hidden if the count later drops.
+-- The Nest count is the config's nests.baseCount plus the Nests bought with Gold (nests.goldPrices, in order) and the bonus slots from other
+-- sources, up to nests.maxCount; a Nest that holds dragons is never hidden if the count later drops.
 -- As of 2026-november-11 not built: weather VFX on eggs, Incubators,
 -- the Gene Book and gamepass Nests (the bonus slot is their hook).
 local NestManager = {}
@@ -51,7 +51,7 @@ local function getNestCount(playerData: any): number
 		return 0
 	end
 	local config = odds.config
-	local count = math.min(config.nestBaseCount + playerData:getNestGoldPurchases() + playerData:getNestBonusSlots(), config.nestMaxCount)
+	local count = math.min(config.nests.baseCount + playerData:getNestGoldPurchases() + playerData:getNestBonusSlots(), config.nests.maxCount)
 	for key in playerData:getNests() do
 		count = math.max(count, tonumber(key) or 0)
 	end
@@ -64,10 +64,10 @@ end
 
 -- the Gold price of the next Nest the player can buy, nil when there is none left (the maximum, or no price set for it)
 local function getNextNestPrice(odds: HatchOdds.Odds, playerData: any): number?
-	if getNestCount(playerData) >= odds.config.nestMaxCount then
+	if getNestCount(playerData) >= odds.config.nests.maxCount then
 		return nil
 	end
-	return odds.config.nestGoldPrices[playerData:getNestGoldPurchases() + 1]
+	return odds.config.nests.goldPrices[playerData:getNestGoldPurchases() + 1]
 end
 
 local function makeUuid(): string
@@ -440,7 +440,7 @@ end
 function NestManager.devAddSlot(self: NestManager, player: Player)
 	local odds = hatchOddsManager:getOdds()
 	local playerData = gameController:getPlayerData(player)
-	if not odds or not playerData or getNestCount(playerData) >= odds.config.nestMaxCount then
+	if not odds or not playerData or getNestCount(playerData) >= odds.config.nests.maxCount then
 		return
 	end
 	playerData:addNestBonusSlot()

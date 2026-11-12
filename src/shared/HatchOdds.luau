@@ -1,7 +1,8 @@
 --!strict
 
--- Types, structural names and validation for the Hatch Dragons odds config, authored in Studio as GameData/Control/HatchOdds.
--- The server validates it and sends it to clients; every roll and value function takes the Config as a parameter.
+-- Types, structural names and validation for the Hatch Dragons config, authored in Studio as three modules under GameData/Control:
+-- HatchOdds (genetics, tiers and values), HatchPieces (the piece catalogue) and HatchSystems (nests, weather traits, economy).
+-- The server assembles and validates them and sends the Config to clients; every roll and value function takes the Config as a parameter.
 
 local HatchOdds = {}
 
@@ -46,6 +47,31 @@ export type PieceRow = { id: string, rarity: PieceRarity, weight: number }
 -- the trait a weather gives waiting eggs, and the element whose 50%+ share doubles the chance (nil for none)
 export type WeatherTrait = { trait: string, element: Element? }
 
+-- Control/HatchSystems: the settings of the systems around the dragons, one section each
+export type NestsConfig = {
+	baseCount: number, -- the personal Nests every player starts with
+	maxCount: number, -- the most personal Nests, however they were gained
+	goldPrices: { number }, -- Gold for each Nest bought with Gold, in order
+	parentScale: number, -- how big the parents look on a Nest, 1 is their original size
+	layTimeMult: { [DragonBand]: number }, -- lay time multiplier by the parents' average band
+	layBoostFloor: number, -- speed boosts can't cut the lay time below this fraction
+	-- Optional: when missing, the DEFAULT_ value below is used
+	eggCap: number?, -- the most eggs that wait in one Nest; a full Nest stops laying
+}
+
+export type WeatherConfig = {
+	traitChancePerMinute: number?, -- per waiting egg, per minute of weather
+	traitMatchMult: number?, -- the chance is multiplied by this for an egg of the matching element
+	traitMatchShare: number?, -- the element share that counts as matching
+	traits: { [Weather]: WeatherTrait }?, -- weather -> trait; a weather with no entry gives no trait
+}
+
+export type EconomyConfig = {
+	restyleDiamondsPerToken: number?, -- Diamonds that pay for one Restyle Token (the token pack rate)
+}
+
+-- The assembled config: Control/HatchOdds (the genetics and values), Control/HatchPieces (pieces) and Control/HatchSystems (nests, weather,
+-- economy), put together by HatchOdds.assemble. weather and economy are optional sections.
 export type Config = {
 	version: number,
 	pieces: { [Part]: { [Element]: { PieceRow } } },
@@ -75,19 +101,9 @@ export type Config = {
 	tierJumpTotal: number, -- the jump weight is taken from "same tier" out of this total
 	tierJumpBaseWeight: number,
 	tierJumpBonus: { [DragonBand]: number },
-	layTimeMult: { [DragonBand]: number }, -- by the parents' average band
-	layBoostFloor: number,
-	nestBaseCount: number, -- the personal Nests every player starts with
-	nestMaxCount: number, -- the most personal Nests, however they were gained
-	nestGoldPrices: { number }, -- Gold for each Nest bought with Gold, in order
-	nestParentScale: number, -- how big the parents look on a Nest, 1 is their original size
-	-- Optional: when a field is missing the DEFAULT_ value below is used, so these can be added to the Studio table whenever
-	eggCap: number?, -- the most eggs that wait in one Nest; a full Nest stops laying
-	weatherTraitChancePerMinute: number?, -- per waiting egg, per minute of weather
-	weatherTraitMatchMult: number?, -- the chance is multiplied by this for an egg of the matching element
-	weatherTraitMatchShare: number?, -- the element share that counts as matching
-	weatherTraits: { [Weather]: WeatherTrait }?, -- weather -> trait; a weather with no entry gives no trait
-	restyleDiamondsPerToken: number?, -- Diamonds that pay for one Restyle Token (the token pack rate)
+	nests: NestsConfig,
+	weather: WeatherConfig?,
+	economy: EconomyConfig?,
 }
 
 -- Structural names: the code branches on these, so they stay out of the designer's table.
@@ -109,7 +125,7 @@ local DRAGON_BANDS: { DragonBand } = { "common", "uncommon", "rare", "epic", "le
 
 local WEATHERS: { Weather } = { "rain", "heatwave", "bloomStorm", "thunderstorm" }
 
--- the values used while the Studio table leaves an optional Config field out (the spec's numbers)
+-- the values used while Control/HatchSystems leaves an optional field out (the spec's numbers)
 HatchOdds.DEFAULT_EGG_CAP = 3
 HatchOdds.DEFAULT_RESTYLE_DIAMONDS_PER_TOKEN = 5 -- placeholder; the spec sets no pack rate yet
 HatchOdds.DEFAULT_WEATHER_TRAIT_CHANCE_PER_MINUTE = 0.02
@@ -162,6 +178,25 @@ function HatchOdds.indexPieces(config: Config): Catalog
 	return { byId = byId, byPart = byPart }
 end
 
+-- Puts the three Control modules together into one Config (the shape the roll, value and Nest code read). The result is not checked;
+-- HatchOdds.validate reports what is wrong and which file it is in.
+function HatchOdds.assemble(oddsData: any, piecesData: any, systemsData: any): any
+	if type(oddsData) ~= "table" then
+		return oddsData
+	end
+	local config = table.clone(oddsData)
+	-- every Control module returns its fields under their names: HatchPieces has pieces, HatchSystems has nests, weather and economy
+	if type(piecesData) == "table" then
+		config.pieces = piecesData.pieces
+	end
+	if type(systemsData) == "table" then
+		config.nests = systemsData.nests
+		config.weather = systemsData.weather
+		config.economy = systemsData.economy
+	end
+	return config
+end
+
 function HatchOdds.build(config: Config): Odds
 	return { config = config, catalog = HatchOdds.indexPieces(config) }
 end
@@ -192,7 +227,7 @@ function HatchOdds.validate(config: any): { string }
 			end
 		end
 	end
-	for _, field in { "tierJumpBonus", "layTimeMult" } do
+	for _, field in { "tierJumpBonus" } do
 		local map = config[field]
 		for _, band in DRAGON_BANDS do
 			if type(map) ~= "table" or not isFiniteNonNegative(map[band]) then
@@ -203,35 +238,10 @@ function HatchOdds.validate(config: any): { string }
 	for _, field in {
 		"pureBonus", "visibleMin", "visibleSpan", "visibleSizeCap", "giantVisible", "sizeParentWeight", "sizeBase",
 		"sizeJitterMin", "sizeJitterMax", "giantChance", "giantMult", "sizeMin", "sizeMax", "mutationTotal", "mutationParentBuff",
-		"weatherMutationBuff", "mutationWeightCap", "tierJumpTotal", "tierJumpBaseWeight", "layBoostFloor", "nestBaseCount", "nestMaxCount", "nestParentScale",
+		"weatherMutationBuff", "mutationWeightCap", "tierJumpTotal", "tierJumpBaseWeight",
 	} do
 		if not isFiniteNonNegative(config[field]) then
 			problem(("HatchOdds: %s must be a non-negative number"):format(field))
-		end
-	end
-
-	if isFiniteNonNegative(config.nestParentScale) and config.nestParentScale <= 0 then
-		problem("HatchOdds: nestParentScale must be above 0")
-	end
-
-	if isFiniteNonNegative(config.nestBaseCount) and isFiniteNonNegative(config.nestMaxCount) then
-		if config.nestBaseCount < 1 or config.nestBaseCount ~= math.floor(config.nestBaseCount) then
-			problem("HatchOdds: nestBaseCount must be a whole number of at least 1")
-		end
-		if config.nestMaxCount < config.nestBaseCount or config.nestMaxCount ~= math.floor(config.nestMaxCount) then
-			problem("HatchOdds: nestMaxCount must be a whole number, not below nestBaseCount")
-		end
-		if type(config.nestGoldPrices) ~= "table" then
-			problem("HatchOdds: nestGoldPrices must be a list of Gold prices")
-		else
-			for index, price in config.nestGoldPrices do
-				if not isFiniteNonNegative(price) then
-					problem(("HatchOdds: nestGoldPrices[%d] must be a non-negative number"):format(index))
-				end
-			end
-			if config.nestBaseCount + #config.nestGoldPrices > config.nestMaxCount then
-				problem("HatchOdds: nestBaseCount plus the Gold Nests is more than nestMaxCount")
-			end
 		end
 	end
 
@@ -251,35 +261,90 @@ function HatchOdds.validate(config: any): { string }
 		end
 	end
 
-	-- optional fields: absent is fine, present must make sense
-	if config.eggCap ~= nil and (type(config.eggCap) ~= "number" or config.eggCap < 1 or config.eggCap ~= math.floor(config.eggCap)) then
-		problem("HatchOdds: eggCap must be a whole number of at least 1")
-	end
-	for _, field in { "weatherTraitChancePerMinute", "weatherTraitMatchShare" } do
-		local value = config[field]
-		if value ~= nil and (not isFiniteNonNegative(value) or value > 1) then
-			problem(("HatchOdds: %s must be a number from 0 to 1"):format(field))
+	-- Control/HatchSystems: nests is required; weather and economy are optional, and absent fields use the defaults
+	local nests = config.nests
+	if type(nests) ~= "table" then
+		problem("HatchSystems: nests must be a table")
+	else
+		for _, field in { "baseCount", "maxCount", "parentScale", "layBoostFloor" } do
+			if not isFiniteNonNegative(nests[field]) then
+				problem(("HatchSystems: nests.%s must be a non-negative number"):format(field))
+			end
+		end
+		local layTimeMult = nests.layTimeMult
+		for _, band in DRAGON_BANDS do
+			if type(layTimeMult) ~= "table" or not isFiniteNonNegative(layTimeMult[band]) then
+				problem(("HatchSystems: nests.layTimeMult.%s must be a non-negative number"):format(band))
+			end
+		end
+		if isFiniteNonNegative(nests.parentScale) and nests.parentScale <= 0 then
+			problem("HatchSystems: nests.parentScale must be above 0")
+		end
+		if isFiniteNonNegative(nests.baseCount) and isFiniteNonNegative(nests.maxCount) then
+			if nests.baseCount < 1 or nests.baseCount ~= math.floor(nests.baseCount) then
+				problem("HatchSystems: nests.baseCount must be a whole number of at least 1")
+			end
+			if nests.maxCount < nests.baseCount or nests.maxCount ~= math.floor(nests.maxCount) then
+				problem("HatchSystems: nests.maxCount must be a whole number, not below nests.baseCount")
+			end
+			if type(nests.goldPrices) ~= "table" then
+				problem("HatchSystems: nests.goldPrices must be a list of Gold prices")
+			else
+				for index, price in nests.goldPrices do
+					if not isFiniteNonNegative(price) then
+						problem(("HatchSystems: nests.goldPrices[%d] must be a non-negative number"):format(index))
+					end
+				end
+				if nests.baseCount + #nests.goldPrices > nests.maxCount then
+					problem("HatchSystems: nests.baseCount plus the Gold Nests is more than nests.maxCount")
+				end
+			end
+		end
+		if nests.eggCap ~= nil and (type(nests.eggCap) ~= "number" or nests.eggCap < 1 or nests.eggCap ~= math.floor(nests.eggCap)) then
+			problem("HatchSystems: nests.eggCap must be a whole number of at least 1")
 		end
 	end
-	if config.restyleDiamondsPerToken ~= nil
-		and (type(config.restyleDiamondsPerToken) ~= "number" or config.restyleDiamondsPerToken < 1 or config.restyleDiamondsPerToken ~= math.floor(config.restyleDiamondsPerToken)) then
-		problem("HatchOdds: restyleDiamondsPerToken must be a whole number of at least 1")
-	end
-	if config.weatherTraitMatchMult ~= nil and not isFiniteNonNegative(config.weatherTraitMatchMult) then
-		problem("HatchOdds: weatherTraitMatchMult must be a non-negative number")
-	end
-	if config.weatherTraits ~= nil then
-		if type(config.weatherTraits) ~= "table" then
-			problem("HatchOdds: weatherTraits must be a table of weathers")
+
+	local weather = config.weather
+	if weather ~= nil then
+		if type(weather) ~= "table" then
+			problem("HatchSystems: weather must be a table")
 		else
-			for weather, def in config.weatherTraits do
-				if not table.find(WEATHERS, weather) then
-					problem(("HatchOdds: weatherTraits has an unknown weather %s"):format(tostring(weather)))
-				elseif type(def) ~= "table" or type(def.trait) ~= "string" or def.trait == "" then
-					problem(("HatchOdds: weatherTraits.%s needs a trait name"):format(weather))
-				elseif def.element ~= nil and not table.find(ELEMENTS, def.element) then
-					problem(("HatchOdds: weatherTraits.%s has an unknown element %s"):format(weather, tostring(def.element)))
+			for _, field in { "traitChancePerMinute", "traitMatchShare" } do
+				local value = weather[field]
+				if value ~= nil and (not isFiniteNonNegative(value) or value > 1) then
+					problem(("HatchSystems: weather.%s must be a number from 0 to 1"):format(field))
 				end
+			end
+			if weather.traitMatchMult ~= nil and not isFiniteNonNegative(weather.traitMatchMult) then
+				problem("HatchSystems: weather.traitMatchMult must be a non-negative number")
+			end
+			if weather.traits ~= nil then
+				if type(weather.traits) ~= "table" then
+					problem("HatchSystems: weather.traits must be a table of weathers")
+				else
+					for weatherName, def in weather.traits do
+						if not table.find(WEATHERS, weatherName) then
+							problem(("HatchSystems: weather.traits has an unknown weather %s"):format(tostring(weatherName)))
+						elseif type(def) ~= "table" or type(def.trait) ~= "string" or def.trait == "" then
+							problem(("HatchSystems: weather.traits.%s needs a trait name"):format(weatherName))
+						elseif def.element ~= nil and not table.find(ELEMENTS, def.element) then
+							problem(("HatchSystems: weather.traits.%s has an unknown element %s"):format(weatherName, tostring(def.element)))
+						end
+					end
+				end
+			end
+		end
+	end
+
+	local economy = config.economy
+	if economy ~= nil then
+		if type(economy) ~= "table" then
+			problem("HatchSystems: economy must be a table")
+		else
+			local rate = economy.restyleDiamondsPerToken
+			if rate ~= nil and (type(rate) ~= "number" or rate < 1 or rate ~= math.floor(rate)) then
+				problem("HatchSystems: economy.restyleDiamondsPerToken must be a whole number of at least 1")
 			end
 		end
 	end
@@ -326,30 +391,30 @@ function HatchOdds.validate(config: any): { string }
 	end
 
 	if type(config.pieces) ~= "table" then
-		problem("HatchOdds: pieces must be a table of parts")
+		problem("HatchPieces: pieces must be a table of parts")
 	else
 		local seen: { [string]: boolean } = {}
 		for part, byElement in config.pieces do
 			if not table.find(PARTS, part) or type(byElement) ~= "table" then
-				problem(("HatchOdds: pieces has an unknown part %s"):format(tostring(part)))
+				problem(("HatchPieces: pieces has an unknown part %s"):format(tostring(part)))
 				continue
 			end
 			for element, rows in byElement do
 				if not table.find(ELEMENTS, element) or type(rows) ~= "table" then
-					problem(("HatchOdds: pieces.%s has an unknown element %s"):format(part, tostring(element)))
+					problem(("HatchPieces: pieces.%s has an unknown element %s"):format(part, tostring(element)))
 					continue
 				end
 				for _, row in rows do
 					if type(row.id) ~= "string" or seen[row.id] then
-						problem(("HatchOdds: piece id %s under %s/%s is missing or duplicated"):format(tostring(row.id), part, element))
+						problem(("HatchPieces: piece id %s under %s/%s is missing or duplicated"):format(tostring(row.id), part, element))
 					else
 						seen[row.id] = true
 					end
 					if not isFiniteNonNegative(row.weight) then
-						problem(("HatchOdds: piece %s needs a weight of 0 or more"):format(tostring(row.id)))
+						problem(("HatchPieces: piece %s needs a weight of 0 or more"):format(tostring(row.id)))
 					end
 					if not table.find(PIECE_RARITIES, row.rarity) then
-						problem(("HatchOdds: piece %s has an unknown rarity %s"):format(tostring(row.id), tostring(row.rarity)))
+						problem(("HatchPieces: piece %s has an unknown rarity %s"):format(tostring(row.id), tostring(row.rarity)))
 					end
 				end
 			end
@@ -360,7 +425,7 @@ function HatchOdds.validate(config: any): { string }
 				local byElement = config.pieces[part]
 				local rows = type(byElement) == "table" and byElement[element]
 				if type(rows) ~= "table" or #rows == 0 then
-					problem(("HatchOdds: no %s piece for part %s"):format(element, part))
+					problem(("HatchPieces: no %s piece for part %s"):format(element, part))
 				end
 			end
 		end
