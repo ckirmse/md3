@@ -6,6 +6,7 @@ local ClientGenomeUi = {}
 
 local collectionService = game:GetService("CollectionService")
 local httpService = game:GetService("HttpService")
+local tweenService = game:GetService("TweenService")
 
 local Attributes = require("@game/ReplicatedStorage/Shared/Attributes")
 local GenomeValue = require("@game/ReplicatedStorage/Shared/GenomeValue")
@@ -20,12 +21,12 @@ export type Candidate = { itemId: number, genome: any, isInWorld: boolean }
 
 ClientGenomeUi.PART_LABELS = {
 	headShape = "Head shape",
-	faceType = "Face",
+	faceType = "Face type",
 	headAttachment = "Head attachment",
 	backSpikes = "Back spikes",
 	wings = "Wings",
 	tailSpike = "Tail spike",
-	meshTexture = "Texture",
+	meshTexture = "Mesh texture",
 } :: { [string]: string }
 
 -- piece rarities and dragon bands share one palette
@@ -125,6 +126,14 @@ function ClientGenomeUi.setText(inst: any?, text: string)
 	end
 end
 
+-- A button's text goes in its child Label when it has one: a gradient on the button would tint the button's own text, but not a child's.
+function ClientGenomeUi.setButtonText(button: any?, text: string)
+	if button then
+		local label = button:FindFirstChild("Label")
+		ClientGenomeUi.setText(label or button, text)
+	end
+end
+
 -- removes the clones made by cloneTemplate, keeping the template
 function ClientGenomeUi.clearGenerated(container: any, template: any)
 	for _, child in container:GetChildren() do
@@ -153,9 +162,112 @@ function ClientGenomeUi.setButtonEnabled(button: any?, isEnabled: boolean)
 	if gradient then
 		gradient.Enabled = isEnabled
 	end
-	local label = button:FindFirstChild("Label")
+	local label = button:FindFirstChild("Label") or (if button:IsA("TextButton") then button else nil)
 	if label then
 		label.TextTransparency = if isEnabled then 0 else 0.5
+	end
+end
+
+local HOVER_SCALE = 1.06
+local PRESS_SCALE = 0.95
+local HOVER_LIFT = 0.25 -- how much more solid a list row or tab gets under the mouse
+local HOVER_TWEEN = TweenInfo.new(0.1, Enum.EasingStyle.Quad)
+
+-- A button grows under the mouse and shrinks when pressed, through a UIScale, so its colours are never touched. A button a layout places
+-- (a tab, a list row) can't grow, since its list clips it, so it gets more solid instead. resetHover puts everything back, because a button
+-- the mouse was over when its screen closed would otherwise reopen changed.
+function ClientGenomeUi.bindHover(button: any)
+	if button:GetAttribute("HoverBound") then
+		return
+	end
+	button:SetAttribute("HoverBound", true)
+
+	local parent = button.Parent
+	local isInLayout = parent ~= nil and (parent:FindFirstChildOfClass("UIListLayout") or parent:FindFirstChildOfClass("UIGridLayout")) ~= nil
+	if isInLayout then
+		local baseTransparency = button.BackgroundTransparency
+		button:SetAttribute("HoverBaseTransparency", baseTransparency)
+		local function liftTo(transparency: number)
+			tweenService:Create(button, HOVER_TWEEN, { BackgroundTransparency = transparency }):Play()
+		end
+		button.MouseEnter:Connect(function()
+			liftTo(math.max(0, baseTransparency - HOVER_LIFT))
+		end)
+		button.MouseLeave:Connect(function()
+			liftTo(baseTransparency)
+		end)
+		return
+	end
+
+	-- a UIScale grows a button from its anchor point, so the anchor moves to the middle and the position shifts by half the size to keep the
+	-- button where it was
+	if button.AnchorPoint == Vector2.zero then
+		local size, position = button.Size, button.Position
+		button.AnchorPoint = Vector2.new(0.5, 0.5)
+		button.Position = UDim2.new(
+			position.X.Scale + size.X.Scale * 0.5,
+			position.X.Offset + size.X.Offset * 0.5,
+			position.Y.Scale + size.Y.Scale * 0.5,
+			position.Y.Offset + size.Y.Offset * 0.5
+		)
+	end
+
+	local scale: any = button:FindFirstChild("HoverScale")
+	if not scale then
+		scale = Instance.new("UIScale")
+		scale.Name = "HoverScale"
+		scale.Parent = button
+	end
+	local function scaleTo(target: number)
+		tweenService:Create(scale, HOVER_TWEEN, { Scale = target }):Play()
+	end
+	button.MouseEnter:Connect(function()
+		scaleTo(HOVER_SCALE)
+	end)
+	button.MouseLeave:Connect(function()
+		scaleTo(1)
+	end)
+	button.MouseButton1Down:Connect(function()
+		scaleTo(PRESS_SCALE)
+	end)
+	button.MouseButton1Up:Connect(function()
+		scaleTo(HOVER_SCALE)
+	end)
+end
+
+-- binds every button under the root except those inside a hidden template, whose clones are bound as they are made
+function ClientGenomeUi.bindHoverIn(root: any)
+	for _, inst in root:GetDescendants() do
+		if inst:IsA("TextButton") or inst:IsA("ImageButton") then
+			local isInTemplate = false
+			local ancestor = inst.Parent
+			while ancestor and ancestor ~= root do
+				if ancestor.Name:match("Template$") then
+					isInTemplate = true
+					break
+				end
+				ancestor = ancestor.Parent
+			end
+			if not isInTemplate and not inst.Name:match("Template$") then
+				ClientGenomeUi.bindHover(inst)
+			end
+		end
+	end
+end
+
+function ClientGenomeUi.resetHover(root: any?)
+	if not root then
+		return
+	end
+	for _, inst in root:GetDescendants() do
+		if inst:IsA("UIScale") and inst.Name == "HoverScale" then
+			inst.Scale = 1
+		elseif inst:IsA("GuiButton") then
+			local base = inst:GetAttribute("HoverBaseTransparency")
+			if type(base) == "number" then
+				inst.BackgroundTransparency = base
+			end
+		end
 	end
 end
 
@@ -165,6 +277,10 @@ function ClientGenomeUi.cloneTemplate(template: any, container: any, name: strin
 	clone.Visible = true
 	clone:SetAttribute("Generated", true)
 	clone.Parent = container
+	if clone:IsA("TextButton") or clone:IsA("ImageButton") then
+		ClientGenomeUi.bindHover(clone)
+	end
+	ClientGenomeUi.bindHoverIn(clone)
 	return clone
 end
 

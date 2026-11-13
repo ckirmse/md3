@@ -10,8 +10,10 @@ local GenomeRoll = require("@game/ReplicatedStorage/Shared/GenomeRoll")
 local GenomeValue = require("@game/ReplicatedStorage/Shared/GenomeValue")
 local HatchOdds = require("@game/ReplicatedStorage/Shared/HatchOdds")
 local HatchWeather = require("@game/ReplicatedStorage/Shared/HatchWeather")
+local ElementColor = require("@game/ReplicatedStorage/Shared/ElementColor")
 local Enums = require("@game/ReplicatedStorage/Shared/Enums")
 local NestMath = require("@game/ReplicatedStorage/Shared/NestMath")
+local OddsFormat = require("@game/ReplicatedStorage/Shared/OddsFormat")
 local PairOdds = require("@game/ReplicatedStorage/Shared/PairOdds")
 local Restyle = require("@game/ReplicatedStorage/Shared/Restyle")
 
@@ -215,7 +217,77 @@ function HatchOddsSelfTest.run(liveConfig: any?): { string }
 		if pair.sizeMin > pair.sizeMax or pair.sizeMax > pair.giantSizeMax then
 			table.insert(failures, "PairOdds size range is not ordered")
 		end
+
+		-- parents with identical pieces: each part's chance of that piece is all "both"
+		for _, part in HatchOdds.PARTS do
+			local sources = pair.partSources[part]
+			local sharedChance = 0
+			for _, entry in pair.parts[part] do
+				if entry.id == mythicA.pieces[part] then
+					sharedChance = entry.chance
+				end
+			end
+			check("PairOdds " .. part .. " both", sources.both, sharedChance, 0.0001)
+			check("PairOdds " .. part .. " a and b are empty", sources.a + sources.b, 0, 0)
+			check("PairOdds " .. part .. " sources add up", sources.a + sources.b + sources.both + sources.new, 1, 0.0001)
+		end
+		local normalChance = 0
+		for _, entry in pair.mutations do
+			if entry.id == "normal" then
+				normalChance = entry.chance
+			end
+		end
+		check("PairOdds mutation chance", pair.mutationChance, 1 - normalChance, 0.0001)
+		check("PairOdds likely band chance", pair.likelyBandChance, pair.bands[pair.likelyBand], 0)
+		for band, chance in pair.bands do
+			if chance > pair.likelyBandChance + 1e-9 then
+				table.insert(failures, "PairOdds likely band " .. pair.likelyBand .. " is less likely than " .. band)
+			end
+		end
 	end
+
+	-- parents with different head shapes: A and B each have their own chance
+	local differentB = table.clone(mythicB)
+	differentB.pieces = table.clone(mythicB.pieces)
+	for _, piece in odds.catalog.byPart.headShape do
+		if piece.element == "fire" and piece.id ~= mythicA.pieces.headShape then
+			differentB.pieces.headShape = piece.id
+			break
+		end
+	end
+	local differentPair = PairOdds.get(odds, mythicA, differentB, nil)
+	if differentPair then
+		local headSources = differentPair.partSources.headShape
+		check("PairOdds different parents: no both", headSources.both, 0, 0)
+		if not (headSources.a > 0 and headSources.b > 0) then
+			table.insert(failures, "PairOdds different parents: A and B should both have a chance")
+		end
+		check("PairOdds different parents add up", headSources.a + headSources.b + headSources.new, 1, 0.0001)
+	else
+		table.insert(failures, "PairOdds returned nil for parents with different head shapes")
+	end
+
+	-- the colour of an element mix: a pure mix is its element's colour, and a half Fire half Water mix has a red between the two
+	for element, color in ElementColor.COLORS do
+		local pure = ElementColor.blend({ fire = 0, water = 0, nature = 0, [element] = 1 })
+		check("ElementColor pure " .. element .. " red", pure.R, color.R, 0.01)
+		check("ElementColor pure " .. element .. " green", pure.G, color.G, 0.01)
+		check("ElementColor pure " .. element .. " blue", pure.B, color.B, 0.01)
+	end
+	local fireWater = ElementColor.blend({ fire = 0.5, water = 0.5, nature = 0 })
+	local waterFire = ElementColor.blend({ fire = 0.5, water = 0.5, nature = 0 })
+	check("ElementColor blend is steady", fireWater.R, waterFire.R, 0)
+	if not (fireWater.R > ElementColor.COLORS.water.R and fireWater.R < ElementColor.COLORS.fire.R) then
+		table.insert(failures, "ElementColor half Fire half Water red is not between the two colours")
+	end
+
+	-- the chances in words
+	check("inHundred 5%", OddsFormat.inHundred(0.05) == "5 in 100" and 1 or 0, 1, 0)
+	check("inHundred under 1%", OddsFormat.inHundred(0.004) == "under 1 in 100" and 1 or 0, 1, 0)
+	check("inHundred none", OddsFormat.inHundred(0) == "none" and 1 or 0, 1, 0)
+	check("aboutInTen 41%", OddsFormat.aboutInTen(0.41) == "about 4 in 10" and 1 or 0, 1, 0)
+	check("aboutInTen small", OddsFormat.aboutInTen(0.02) == "about 1 in 10" and 1 or 0, 1, 0)
+	check("aboutInTen near certain", OddsFormat.aboutInTen(0.97) == "almost every egg" and 1 or 0, 1, 0)
 	local wrongTier = table.clone(mythicB)
 	wrongTier.tier = 2
 	if PairOdds.get(odds, mythicA, wrongTier, nil) ~= nil then

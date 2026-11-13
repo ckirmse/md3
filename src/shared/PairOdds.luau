@@ -12,12 +12,19 @@ local PairOdds = {}
 
 export type Chance = { id: string, chance: number }
 
+-- where one part's piece comes from: the same as parent A's, the same as parent B's, the same as both (they share it), or something else
+export type PartSources = { a: number, b: number, both: number, new: number }
+
 export type Result = {
 	tier: number,
 	shares: Genome.Shares,
 	parts: { [HatchOdds.Part]: { Chance } }, -- by chance, highest first
+	partSources: { [HatchOdds.Part]: PartSources }, -- each part's chances grouped by which parent it matches; they add up to 1
 	mutations: { Chance }, -- by chance, highest first, with "normal" among them
+	mutationChance: number, -- the chance of any mutation, "normal" excluded
 	bands: { [HatchOdds.DragonBand]: number }, -- the chance of each rarity band
+	likelyBand: HatchOdds.DragonBand, -- the band with the highest chance (the lower one on a tie)
+	likelyBandChance: number,
 	expectedScore: number,
 	expectedValue: number, -- a rough sell value: the average score and size, no mutation or Pure bonus
 	sizeMin: number,
@@ -52,6 +59,25 @@ function PairOdds.toChances(list: { GenomeRoll.Weighted }): { Chance }
 	return chances
 end
 
+local function getChanceOf(chances: { Chance }, id: string): number
+	for _, entry in chances do
+		if entry.id == id then
+			return entry.chance
+		end
+	end
+	return 0
+end
+
+-- the chances of a part grouped by which parent's piece they equal; a piece both parents have counts as "both" only
+local function getPartSources(chances: { Chance }, pieceA: string, pieceB: string): PartSources
+	if pieceA == pieceB then
+		local both = getChanceOf(chances, pieceA)
+		return { a = 0, b = 0, both = both, new = math.max(0, 1 - both) }
+	end
+	local a, b = getChanceOf(chances, pieceA), getChanceOf(chances, pieceB)
+	return { a = a, b = b, both = 0, new = math.max(0, 1 - a - b) }
+end
+
 -- nil when the parents can't breed (different tiers)
 function PairOdds.get(odds: HatchOdds.Odds, parentA: Genome.Genome, parentB: Genome.Genome, weather: HatchOdds.Weather?): Result?
 	if parentA.tier ~= parentB.tier then
@@ -66,11 +92,13 @@ function PairOdds.get(odds: HatchOdds.Odds, parentA: Genome.Genome, parentB: Gen
 	local shares = GenomeRoll.mixShares(parentA.shares, parentB.shares)
 
 	local parts: { [HatchOdds.Part]: { Chance } } = {}
+	local partSources: { [HatchOdds.Part]: PartSources } = {}
 	-- the chance of each total score over the 7 parts
 	local scoreChances: { [number]: number } = { [0] = 1 }
 	for _, part in HatchOdds.PARTS do
 		local chances = PairOdds.toChances(GenomeRoll.getPieceWeights(odds, part, shares, { parentA.pieces[part], parentB.pieces[part] }))
 		parts[part] = chances
+		partSources[part] = getPartSources(chances, parentA.pieces[part], parentB.pieces[part])
 
 		local next: { [number]: number } = {}
 		for score, scoreChance in scoreChances do
@@ -88,10 +116,17 @@ function PairOdds.get(odds: HatchOdds.Odds, parentA: Genome.Genome, parentB: Gen
 		bands[band] = 0
 	end
 	local expectedScore = 0
+	local likelyBand = HatchOdds.DRAGON_BANDS[1]
 	for score, chance in scoreChances do
 		local band = GenomeValue.getBandForScore(odds, score)
 		bands[band] += chance
 		expectedScore += score * chance
+	end
+
+	for _, band in HatchOdds.DRAGON_BANDS do
+		if bands[band] > bands[likelyBand] then
+			likelyBand = band
+		end
 	end
 
 	local mutations = PairOdds.toChances(GenomeRoll.getMutationWeights(odds, shares, { parentA.mutation, parentB.mutation }, weather))
@@ -108,8 +143,12 @@ function PairOdds.get(odds: HatchOdds.Odds, parentA: Genome.Genome, parentB: Gen
 		tier = parentA.tier,
 		shares = shares,
 		parts = parts,
+		partSources = partSources,
 		mutations = mutations,
+		mutationChance = math.max(0, 1 - getChanceOf(mutations, "normal")),
 		bands = bands,
+		likelyBand = likelyBand,
+		likelyBandChance = bands[likelyBand],
 		expectedScore = expectedScore,
 		expectedValue = tier.baseValue * (1 + expectedScore) * meanSize * meanSize,
 		sizeMin = sizeMin,

@@ -1,28 +1,32 @@
 --!strict
 
--- Shows a still model of a genome's dragon turning slowly in a ViewportFrame (the Egg Lens and the hatch reveal). The model comes from
--- ClientDragonKit.createDisplayModel, so it looks like the dragon that egg will hatch.
+-- Shows a model turning slowly in a ViewportFrame: a genome's dragon (the Egg Lens, the hatch reveal, the Nest page and the pairing confirm) or the
+-- mystery egg. The dragon comes from ClientDragonKit.createDisplayModel, so it looks like the dragon that egg will hatch.
 local ClientDragonPreview = {}
 
 local runService = game:GetService("RunService")
 
+local utils = require("@game/ReplicatedStorage/Shared/utils")
+
 local clientDragonKit = require("./ClientDragonKit")
 
-local TURN_SPEED = math.rad(30) -- radians per second
+local TURN_SPEED = math.rad(30) -- radians per second, anticlockwise seen from above
+local SLOW_TURN_SPEED = math.rad(18) -- the slower turn of the Nest page and confirm page portraits and the mystery egg
+local VIEW_HEIGHT = 0.8 -- the camera's height over the middle, as a share of the model's half height, for the slightly inclined view
 local FIELD_OF_VIEW = 35
 local FRAMING_MARGIN = 1.08 -- the fitted size is padded by this much so the model never touches the frame edge
 
--- the turning of each viewport being shown; the viewports are Studio-authored, so they are untyped here
-local active: { [any]: RBXScriptConnection } = {}
+-- how to stop what each viewport is showing; the viewports are Studio-authored, so they are untyped here
+local active: { [any]: () -> () } = {}
 
 function ClientDragonPreview.clear(viewport: any?)
 	if not viewport then
 		return
 	end
-	local connection = active[viewport]
-	if connection then
-		connection:Disconnect()
+	local stop = active[viewport]
+	if stop then
 		active[viewport] = nil
+		stop()
 	end
 	viewport:ClearAllChildren()
 	viewport.CurrentCamera = nil
@@ -59,17 +63,10 @@ local function measure(model: any): (Vector3?, number, number)
 	return center, (high.Y - low.Y) / 2, radius
 end
 
--- Replaces whatever the viewport shows with the dragon of this genome; nothing is shown when the genome has no model.
-function ClientDragonPreview.show(viewport: any?, genome: any)
-	if not viewport then
-		return
-	end
-	ClientDragonPreview.clear(viewport)
-
-	local model = clientDragonKit:createDisplayModel(genome)
-	if not model then
-		return
-	end
+-- Puts the model in the viewport and turns it about its middle, anticlockwise seen from above, with a camera fitted to the frame's current shape
+-- every frame (the frame's size isn't known until it is laid out). "turn" is the slower turn seen from a raised, inclined camera, "still" is
+-- the same view with no turning; the default is the faster turn from a camera a little above the middle.
+local function present(viewport: any, model: any, mode: string?)
 	model.Parent = viewport
 
 	local center, halfHeight, halfWidth = measure(model)
@@ -85,18 +82,72 @@ function ClientDragonPreview.show(viewport: any?, genome: any)
 	camera.Parent = viewport
 	viewport.CurrentCamera = camera
 
-	-- the camera is fitted to the frame's current shape every frame, since its size isn't known until it is laid out
+	local isSlow = mode == "turn" or mode == "still"
 	local angle = 0
-	active[viewport] = runService.RenderStepped:Connect(function(dt: number)
-		angle += TURN_SPEED * dt
-		model:PivotTo(CFrame.new(center) * CFrame.Angles(0, angle, 0) * CFrame.new(-center) * basePivot)
-
+	local render: RBXScriptConnection = runService.RenderStepped:Connect(function(dt: number)
 		local size = viewport.AbsoluteSize
 		local aspect = if size.Y > 0 then size.X / size.Y else 1
+		if mode ~= "still" then
+			angle += (if isSlow then SLOW_TURN_SPEED else TURN_SPEED) * dt
+			model:PivotTo(CFrame.new(center) * CFrame.Angles(0, angle, 0) * CFrame.new(-center) * basePivot)
+		end
 		local distance = (math.max(halfHeight / halfTan, halfWidth / (halfTan * aspect)) + halfWidth) * FRAMING_MARGIN
-		-- looks from a little above the middle, so the wings and the back are readable
-		camera.CFrame = CFrame.lookAt(center + Vector3.new(0, halfHeight * 0.5, distance), center)
+		local height = halfHeight * (if isSlow then VIEW_HEIGHT else 0.5)
+		camera.CFrame = CFrame.lookAt(center + Vector3.new(0, height, distance), center)
 	end)
+	-- a viewport that is destroyed (a list rebuilt around it) stops its own rendering
+	local destroying: RBXScriptConnection = viewport.Destroying:Connect(function()
+		ClientDragonPreview.clear(viewport)
+	end)
+	active[viewport] = function()
+		render:Disconnect()
+		destroying:Disconnect()
+	end
+end
+
+-- Replaces whatever the viewport shows with the dragon of this genome; nothing is shown when the genome has no model.
+function ClientDragonPreview.show(viewport: any?, genome: any, mode: string?)
+	if not viewport then
+		return
+	end
+	ClientDragonPreview.clear(viewport)
+
+	local model = clientDragonKit:createDisplayModel(genome)
+	if model then
+		present(viewport, model, mode)
+	end
+end
+
+-- Replaces whatever the viewport shows with the placeholder Nest egg tinted one flat colour (black for an egg nobody has seen), turning slowly,
+-- or standing still when isStill is set.
+function ClientDragonPreview.showEgg(viewport: any?, tint: Color3, isStill: boolean?)
+	if not viewport then
+		return
+	end
+	ClientDragonPreview.clear(viewport)
+
+	local template = utils.getGameAssetPathReference("Land.Nest.NestEgg")
+	if not template or not template:IsA("Model") then
+		warn("ClientDragonPreview: GameAssets.Land.Nest.NestEgg is missing")
+		return
+	end
+	local model: any = template:Clone()
+	for _, descendant in model:GetDescendants() do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+			descendant.CanCollide = false
+			descendant.Color = tint
+			descendant.Material = Enum.Material.SmoothPlastic
+			if descendant:IsA("MeshPart") then
+				descendant.TextureID = ""
+			end
+		elseif descendant:IsA("SurfaceAppearance") or descendant:IsA("Decal") or descendant:IsA("Texture") then
+			descendant:Destroy()
+		elseif descendant:IsA("ParticleEmitter") or descendant:IsA("Trail") or descendant:IsA("Beam") then
+			descendant.Enabled = false
+		end
+	end
+	present(viewport, model, if isStill then "still" else "turn")
 end
 
 return ClientDragonPreview
