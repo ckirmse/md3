@@ -17,6 +17,7 @@ local NestMath = require("@game/ReplicatedStorage/Shared/NestMath")
 local PairOdds = require("@game/ReplicatedStorage/Shared/PairOdds")
 local PlayerAttributeKeys = require("@game/ReplicatedStorage/Shared/PlayerAttributeKeys")
 
+local clientDragonPreview = require("./ClientDragonPreview")
 local ClientGenomeUi = require("./ClientGenomeUi")
 local clientHatchOdds = require("./ClientHatchOdds")
 local clientNestWorldManager = require("./ClientNestWorldManager")
@@ -412,7 +413,13 @@ end
 -- The Egg Lens shows the egg a Nest is about to lay (it was rolled when the timer started), in full and for free, and offers to finish the
 -- timer now for Diamonds. Paying sends the egg's id, so the server charges only if that is still the egg the player looked at.
 
+-- the dragon preview is an optional ViewportFrame named Preview inside the Lens or the Reveal
+local function getPreview(frame: any?): any?
+	return if frame then frame:FindFirstChild("Preview") else nil
+end
+
 function ClientNestManager.closeLens(self: ClientNestManager)
+	clientDragonPreview.clear(getPreview(self.lens))
 	setVisible(self.lens, false)
 	self.lensNestIndex = nil
 	self.lensEggId = nil
@@ -455,6 +462,7 @@ function ClientNestManager.showLens(self: ClientNestManager, nestIndex: number)
 	setText(frame:FindFirstChild("Size"), ("Size %.2f%s"):format(genome.size, if genome.isGiant then " (Giant!)" else ""))
 	setText(frame:FindFirstChild("Value"), ("Sell value: %d coins"):format(math.floor(GenomeValue.getValue(odds, genome))))
 	frame.Visible = true
+	clientDragonPreview.show(getPreview(frame), genome)
 	self:refreshLens()
 end
 
@@ -503,6 +511,7 @@ end
 function ClientNestManager.closeReveal(self: ClientNestManager)
 	self.revealToken += 1
 	self.revealed = nil
+	clientDragonPreview.clear(getPreview(self.reveal))
 	setVisible(self.reveal, false)
 end
 
@@ -535,6 +544,7 @@ function ClientNestManager.showReveal(self: ClientNestManager, reveal: any)
 	setVisible(frame:FindFirstChild("Traits"), false)
 	setText(frame:FindFirstChild("Size"), "")
 	setText(frame:FindFirstChild("Value"), "")
+	clientDragonPreview.clear(getPreview(frame))
 	frame.Visible = true
 
 	task.spawn(function()
@@ -569,6 +579,8 @@ function ClientNestManager.showReveal(self: ClientNestManager, reveal: any)
 		setVisible(frame:FindFirstChild("Traits"), hasTraits)
 		setText(frame:FindFirstChild("Size"), ("Size %.2f%s"):format(genome.size, if genome.isGiant then " (Giant!)" else ""))
 		setText(frame:FindFirstChild("Value"), ("Sell value: %d coins"):format(reveal.value))
+		-- the dragon appears with the banner, so the pieces still come out one by one first
+		clientDragonPreview.show(getPreview(frame), genome)
 	end)
 end
 
@@ -677,9 +689,9 @@ end
 --       Timer, SpeedUpButton, ClearButton and EggList (a list layout) holding the hidden EggTemplate: Label, Traits, HatchButton and an optional Glow
 --     Picker (hidden): DragonList holding the hidden DragonTemplate (Label, optional SelectedMark), OddsList holding the hidden OddsTemplate (a rich text label), Hint, ConfirmButton, CancelButton
 --     Lens (hidden, optional) opened by a Nest's SpeedUpButton: Banner, Subtitle, PieceList (hidden PieceTemplate: Label), Mutation, Size, Value, Info,
---       PayButton (with a Label), CloseButton
+--       PayButton (with a Label), CloseButton and an optional Preview (a ViewportFrame showing the egg's dragon)
 --     Reveal (hidden): Banner, Subtitle, PieceList holding the hidden PieceTemplate (Label), Mutation, Traits, Size, Value, SellButton, KeepButton,
---       CloseButton
+--       CloseButton and an optional Preview (a ViewportFrame)
 function ClientNestManager.setUpGui(self: ClientNestManager)
 	local playerGui = player:WaitForChild("PlayerGui")
 	local gui: any = playerGui:WaitForChild("Nests", 10)
