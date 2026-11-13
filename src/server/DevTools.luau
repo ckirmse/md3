@@ -44,6 +44,7 @@ local RemoteEvents: any = ReplicatedStorage:WaitForChild("RemoteEvents")
 local Attributes = require("@game/ReplicatedStorage/Shared/Attributes")
 local Elements = require("@game/ReplicatedStorage/Shared/Elements")
 local enums = require("@game/ReplicatedStorage/Shared/Enums")
+local Genome = require("@game/ReplicatedStorage/Shared/Genome")
 local GenomeItemName = require("@game/ReplicatedStorage/Shared/GenomeItemName")
 local GenomeRoll = require("@game/ReplicatedStorage/Shared/GenomeRoll")
 local GenomeValue = require("@game/ReplicatedStorage/Shared/GenomeValue")
@@ -1042,8 +1043,60 @@ function DevTools.addGemPile(self: DevTools, player: Player)
 	end
 end
 
+-- the element a legacy dragon's color stands for
+local ELEMENT_BY_COLOR = { Red = "fire", Blue = "water", Green = "nature" }
+
+-- the rarity of the pieces a legacy dragon's name stands for: no suffix is Common
+local PIECE_RARITY_BY_SUFFIX: { [string]: HatchOdds.PieceRarity } = { [""] = "common", UC = "uncommon", R = "rare", E = "legendary" }
+
+-- A genome for a legacy dragon item name ("Red R Dragon Level 7"): every piece the same fixed one of that color's element and rarity, no mutation, average size, at the
+-- tier with that level, so a dropped dragon is predictable and can go in a Nest. nil for any other item or when no tier has that level.
+local function rollGenomeForDragonName(itemName: any): Genome.Genome?
+	local odds = hatchOddsManager:getOdds()
+	if not odds or type(itemName) ~= "string" then
+		return nil
+	end
+	local color, suffix, level = itemName:match("^(%a+) ?(%a*) Dragon Level (%d+)$")
+	local element = if color then ELEMENT_BY_COLOR[color] else nil
+	local pieceRarity = if suffix then PIECE_RARITY_BY_SUFFIX[suffix] else nil
+	if not element or not pieceRarity then
+		return nil
+	end
+	for tierIndex, tier in odds.config.tiers do
+		if tier.dragonLevel == tonumber(level) then
+			local shares = { fire = 0, water = 0, nature = 0 }
+			shares[element] = 1
+			local genome = GenomeRoll.rollFresh(odds, shares, tierIndex, HttpService:GenerateGUID(false), os.time(), "dev", Random.new())
+			if not genome then
+				return nil
+			end
+			for _, part in HatchOdds.PARTS do
+				-- the heaviest piece of that element and rarity (the lowest id on a tie), so the same name always gives the same dragon
+				local best: HatchOdds.Piece? = nil
+				for _, piece in odds.catalog.byPart[part] do
+					if piece.element == element and piece.rarity == pieceRarity then
+						if not best or piece.weight > best.weight or (piece.weight == best.weight and piece.id < best.id) then
+							best = piece
+						end
+					end
+				end
+				-- a part with no piece of that rarity keeps the rolled one
+				if best then
+					genome.pieces[part] = best.id
+				end
+			end
+			genome.mutation = "normal"
+			genome.size = math.clamp(1, odds.config.sizeMin, odds.config.sizeMax)
+			genome.isGiant = false
+			return genome
+		end
+	end
+	return nil
+end
+
+-- a dropped dragon gets a genome too, so team testing can put it straight into a Nest
 function DevTools.createItem(self: DevTools, player: Player, itemName: any)
-	self:_createItem(player, itemName, nil)
+	self:_createItem(player, itemName, rollGenomeForDragonName(itemName))
 end
 
 -- the genome goes on before the dragon enters the backpack, where identical dragons would otherwise stack; the _ keeps it off the client

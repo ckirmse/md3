@@ -1,7 +1,7 @@
 --!strict
 
 -- The Hatch Dragons Nests screen. The HUD NestsButton opens the Nests overlay: one card per Nest with its parents, next-egg timer and
--- waiting eggs, a picker to put two bred dragons in, and a reveal popup where an egg's 7 pieces appear before the player
+-- waiting eggs, a picker to put two bred dragons in, and a reveal popup that shows an egg's 7 pieces before the player
 -- sells or keeps it. The server owns everything: the state arrives in the init data and again in NotifyNests after every change, and the
 -- client only sends intent (TryNestSet, TryNestClear, TryNestHatch, TryNestDecide). The gui is authored in Studio; see setUpGui for its shape.
 local ClientNestManager = {}
@@ -29,7 +29,6 @@ local Types = require("./Types")
 local player = game:GetService("Players").LocalPlayer :: Player
 
 local DISPLAY_ORDER = 20
-local REVEAL_STEP_SEC = 0.25
 
 local PART_LABELS = ClientGenomeUi.PART_LABELS
 local RARITY_COLORS = ClientGenomeUi.RARITY_COLORS
@@ -81,7 +80,6 @@ type ClientNestManagerFields = {
 	pickerNestIndex: number?,
 	pickerCandidates: { Candidate },
 	pickerSelected: { Candidate },
-	revealToken: number,
 	revealed: { nestIndex: number, eggId: string }?,
 	tickerDisconnect: (() -> ())?,
 }
@@ -100,6 +98,9 @@ end
 
 local function formatDuration(seconds: number): string
 	seconds = math.max(0, math.ceil(seconds))
+	if seconds >= 3600 then
+		return ("%d:%02d:%02d"):format(seconds // 3600, seconds % 3600 // 60, seconds % 60)
+	end
 	return ("%d:%02d"):format(seconds // 60, seconds % 60)
 end
 
@@ -509,13 +510,12 @@ function ClientNestManager.confirmLens(self: ClientNestManager)
 end
 
 function ClientNestManager.closeReveal(self: ClientNestManager)
-	self.revealToken += 1
 	self.revealed = nil
 	clientDragonPreview.clear(getPreview(self.reveal))
 	setVisible(self.reveal, false)
 end
 
--- the server's answer to TryNestHatch: the pieces appear one by one, then the banner's rarity colors the screen
+-- the server's answer to TryNestHatch: the whole egg is shown at once, the banner's rarity coloring the screen
 function ClientNestManager.showReveal(self: ClientNestManager, reveal: any)
 	local frame = self.reveal
 	if not frame or type(reveal) ~= "table" or type(reveal.genome) ~= "table" then
@@ -528,60 +528,36 @@ function ClientNestManager.showReveal(self: ClientNestManager, reveal: any)
 	end
 
 	local genome = reveal.genome
-	self.revealToken += 1
-	local token = self.revealToken
 	self.revealed = { nestIndex = reveal.nestIndex, eggId = reveal.eggId }
 
 	local pieceList = frame:FindFirstChild("PieceList")
 	local pieceTemplate = if pieceList then pieceList:FindFirstChild("PieceTemplate") else nil
 	if pieceList and pieceTemplate then
 		clearGenerated(pieceList, pieceTemplate)
+		for order, part in HatchOdds.PARTS do
+			local row = cloneTemplate(pieceTemplate, pieceList, "Piece" .. order)
+			row.LayoutOrder = order
+			local name, rarity = formatPiece(genome.pieces[part])
+			local label = row:FindFirstChild("Label") or row
+			label.Text = ("%s: %s (%s)"):format(PART_LABELS[part] or part, name, rarity)
+			label.TextColor3 = RARITY_COLORS[rarity] or label.TextColor3
+		end
 	end
-	setText(frame:FindFirstChild("Banner"), "")
-	setText(frame:FindFirstChild("Subtitle"), "")
-	setText(frame:FindFirstChild("Mutation"), "")
-	setText(frame:FindFirstChild("Traits"), "")
-	setVisible(frame:FindFirstChild("Traits"), false)
-	setText(frame:FindFirstChild("Size"), "")
-	setText(frame:FindFirstChild("Value"), "")
-	clientDragonPreview.clear(getPreview(frame))
+
+	local banner = frame:FindFirstChild("Banner")
+	if banner then
+		banner.Text = string.upper(reveal.band)
+		banner.TextColor3 = RARITY_COLORS[reveal.band] or banner.TextColor3
+	end
+	setText(frame:FindFirstChild("Subtitle"), (if reveal.isTierJump then "TIER JUMP! " else "") .. getTierName(genome))
+	setText(frame:FindFirstChild("Mutation"), if genome.mutation == "normal" then "No mutation" else "Mutation: " .. genome.mutation)
+	local hasTraits = genome.traits ~= nil and #genome.traits > 0
+	setText(frame:FindFirstChild("Traits"), if hasTraits then "Traits: " .. formatTraits(genome.traits) else "")
+	setVisible(frame:FindFirstChild("Traits"), hasTraits)
+	setText(frame:FindFirstChild("Size"), ("Size %.2f%s"):format(genome.size, if genome.isGiant then " (Giant!)" else ""))
+	setText(frame:FindFirstChild("Value"), ("Sell value: %d coins"):format(reveal.value))
 	frame.Visible = true
-
-	task.spawn(function()
-		if pieceList and pieceTemplate then
-			for order, part in HatchOdds.PARTS do
-				task.wait(REVEAL_STEP_SEC)
-				if token ~= self.revealToken then
-					return
-				end
-				local row = cloneTemplate(pieceTemplate, pieceList, "Piece" .. order)
-				row.LayoutOrder = order
-				local name, rarity = formatPiece(genome.pieces[part])
-				local label = row:FindFirstChild("Label") or row
-				label.Text = ("%s: %s (%s)"):format(PART_LABELS[part] or part, name, rarity)
-				label.TextColor3 = RARITY_COLORS[rarity] or label.TextColor3
-			end
-		end
-		task.wait(REVEAL_STEP_SEC)
-		if token ~= self.revealToken then
-			return
-		end
-
-		local banner = frame:FindFirstChild("Banner")
-		if banner then
-			banner.Text = string.upper(reveal.band)
-			banner.TextColor3 = RARITY_COLORS[reveal.band] or banner.TextColor3
-		end
-		setText(frame:FindFirstChild("Subtitle"), (if reveal.isTierJump then "TIER JUMP! " else "") .. getTierName(genome))
-		setText(frame:FindFirstChild("Mutation"), if genome.mutation == "normal" then "No mutation" else "Mutation: " .. genome.mutation)
-		local hasTraits = genome.traits ~= nil and #genome.traits > 0
-		setText(frame:FindFirstChild("Traits"), if hasTraits then "Traits: " .. formatTraits(genome.traits) else "")
-		setVisible(frame:FindFirstChild("Traits"), hasTraits)
-		setText(frame:FindFirstChild("Size"), ("Size %.2f%s"):format(genome.size, if genome.isGiant then " (Giant!)" else ""))
-		setText(frame:FindFirstChild("Value"), ("Sell value: %d coins"):format(reveal.value))
-		-- the dragon appears with the banner, so the pieces still come out one by one first
-		clientDragonPreview.show(getPreview(frame), genome)
-	end)
+	clientDragonPreview.show(getPreview(frame), genome)
 end
 
 function ClientNestManager.decide(self: ClientNestManager, decision: string)
@@ -838,7 +814,6 @@ function ClientNestManager.new(): ClientNestManager
 	self.lens = nil
 	self.lensNestIndex = nil
 	self.lensEggId = nil
-	self.revealToken = 0
 	self.revealed = nil
 	self.tickerDisconnect = nil
 	return self
