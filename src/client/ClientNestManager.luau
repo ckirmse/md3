@@ -127,7 +127,7 @@ function ClientNestManager.refreshTimers(self: ClientNestManager)
 		local timer = if card and not nest.isEmpty then card:FindFirstChild("Timer", true) else nil
 		if timer then
 			if nest.nextLayAt then
-				local format = if nest.isRemoving then "Last egg in %s, then the dragons return" else "Next egg in %s"
+				local format = if nest.isRemoving then "Removing in %s" else "Next egg in %s"
 				timer.Text = format:format(formatDuration(nest.nextLayAt - now))
 			else
 				timer.Text = "Full: hatch an egg"
