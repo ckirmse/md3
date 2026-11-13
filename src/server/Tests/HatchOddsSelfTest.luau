@@ -595,6 +595,18 @@ function HatchOddsSelfTest.run(liveConfig: any?): { string }
 	end
 	check("restyle chances add up", wingTotal, 1, 0.0001)
 	check("restyle offers the other 5 Fire wings", #wingChances, 5, 0)
+
+	-- a parent's piece is not favoured: the chances are the same with or without the parent in the ancestry
+	local ancestryCopy = table.clone(restyleDragon.ancestry)
+	local parentPieces = table.clone(restyleDragon.pieces)
+	parentPieces.wings = wingChances[#wingChances].id
+	restyleDragon.ancestry = { { uuid = "pp", code = "PP", tier = 1, pieces = parentPieces, mutation = "normal", origin = "bred", generation = 0, ancestry = {} } }
+	local withParent = Restyle.getChances(odds, restyleDragon, "wings")
+	check("restyle ignores parents for weight, count", #withParent, #wingChances, 0)
+	for index, entry in withParent do
+		check("restyle ignores parents for weight " .. index, entry.chance, wingChances[index].chance, 0.0001)
+	end
+	restyleDragon.ancestry = ancestryCopy
 	local sameCount = 0
 	for _ = 1, 300 do
 		if Restyle.roll(odds, restyleDragon, "wings", rng) == currentWings then

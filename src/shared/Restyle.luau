@@ -1,7 +1,7 @@
 --!strict
 
--- Restyle: re-roll one appearance piece of a kept dragon. The piece comes from the dragon's own colour mix with no parent buff, the
--- current piece is left out so the result always changes, and each restyle on the same dragon costs double the last.
+-- Restyle: re-roll one appearance piece of a kept dragon. The piece comes from the dragon's own colour mix with no parent buff; the parents' pieces
+-- are in that pool already, since a baby's mix is its parents' average. The current piece is left out so the result always changes, and each restyle on the same dragon costs double the last.
 -- Pure: every function takes the HatchOdds.Odds, so the Restyle screen shows the same chances the server rolls on.
 
 local Genome = require("./Genome")
@@ -22,6 +22,15 @@ function Restyle.getDiamondCost(odds: HatchOdds.Odds, genome: Genome.Genome): nu
 	local economy = odds.config.economy
 	local rate = if economy and economy.restyleDiamondsPerToken then economy.restyleDiamondsPerToken else HatchOdds.DEFAULT_RESTYLE_DIAMONDS_PER_TOKEN
 	return Restyle.getTokenCost(genome) * rate
+end
+
+-- the pieces this dragon's parents had in a part (kept in its ancestry), so the screen can mark them; none for a founder
+function Restyle.getParentPieceIds(genome: Genome.Genome, part: HatchOdds.Part): { string }
+	local ids: { string } = {}
+	for _, parent in genome.ancestry do
+		table.insert(ids, parent.pieces[part])
+	end
+	return ids
 end
 
 -- the part's piece weights from the dragon's own mix, with the piece it has now removed

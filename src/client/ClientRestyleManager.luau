@@ -61,11 +61,16 @@ export type ClientRestyleManager = typeof(setmetatable({} :: ClientRestyleManage
 
 local function buildOddsLines(odds: HatchOdds.Odds, genome: any, part: HatchOdds.Part): { string }
 	local lines: { string } = {
-		("<b>Restyle %s</b>: the new piece is rolled from this dragon's own mix, and the piece it has now is left out"):format(PART_LABELS[part] or part),
+		("<b>%s</b>"):format(PART_LABELS[part] or part),
 	}
+	local parentPieceIds = Restyle.getParentPieceIds(genome, part)
+	if #parentPieceIds > 0 then
+		table.insert(lines, "* a parent had this piece")
+	end
 	for _, entry in Restyle.getChances(odds, genome, part) do
 		local name, rarity = formatPiece(entry.id)
-		table.insert(lines, colorText(("%s %s"):format(name, formatPercent(entry.chance)), rarity))
+		local marker = if table.find(parentPieceIds, entry.id) then "* " else ""
+		table.insert(lines, colorText(("%s%s %s"):format(marker, name, formatPercent(entry.chance)), rarity))
 	end
 	return lines
 end
