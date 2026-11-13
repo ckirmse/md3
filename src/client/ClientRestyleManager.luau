@@ -39,6 +39,7 @@ local setVisible = ClientGenomeUi.setVisible
 local setText = ClientGenomeUi.setText
 local clearGenerated = ClientGenomeUi.clearGenerated
 local cloneTemplate = ClientGenomeUi.cloneTemplate
+local setButtonEnabled = ClientGenomeUi.setButtonEnabled
 
 type Candidate = ClientGenomeUi.Candidate
 
@@ -57,31 +58,6 @@ type ClientRestyleManagerFields = {
 }
 
 export type ClientRestyleManager = typeof(setmetatable({} :: ClientRestyleManagerFields, ClientRestyleManager))
-
-local DISABLED_COLOR = Color3.fromRGB(110, 110, 110)
-
--- A pay button the player can't afford is greyed out and can't be pressed. Its normal look is read once and kept as attributes, so it
--- comes back exactly when the player can afford it again.
-local function setButtonEnabled(button: any?, isEnabled: boolean)
-	if not button then
-		return
-	end
-	if button:GetAttribute("EnabledColor") == nil then
-		button:SetAttribute("EnabledColor", button.BackgroundColor3)
-		button:SetAttribute("EnabledTransparency", button.BackgroundTransparency)
-	end
-	button.Interactable = isEnabled
-	button.BackgroundColor3 = if isEnabled then button:GetAttribute("EnabledColor") else DISABLED_COLOR
-	button.BackgroundTransparency = if isEnabled then button:GetAttribute("EnabledTransparency") else 0.3
-	local gradient = button:FindFirstChildOfClass("UIGradient")
-	if gradient then
-		gradient.Enabled = isEnabled
-	end
-	local label = button:FindFirstChild("Label")
-	if label then
-		label.TextTransparency = if isEnabled then 0 else 0.5
-	end
-end
 
 local function buildOddsLines(odds: HatchOdds.Odds, genome: any, part: HatchOdds.Part): { string }
 	local lines: { string } = {

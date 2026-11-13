@@ -603,6 +603,50 @@ function HatchOddsSelfTest.run(liveConfig: any?): { string }
 		table.insert(failures, "restyle changed the mutation, size, tier or uuid")
 	end
 
+	-- Diamond lay speed-up: minutes left x the flat rate rounded up (at least 1 while time is left), then the pending egg is laid at once
+	local speedUpRate = HatchOdds.DEFAULT_SPEED_UP_DIAMONDS_PER_MINUTE
+	check("speed-up cost, 3 minutes left", NestMath.getSpeedUpCost(odds, 1180, 1000), 3 * speedUpRate, 0)
+	check("speed-up cost, 1 second left is at least 1", NestMath.getSpeedUpCost(odds, 1001, 1000), 1, 0)
+	check("speed-up cost, timer already run out", NestMath.getSpeedUpCost(odds, 1000, 1000), 0, 0)
+	check("speed-up cost, no timer", NestMath.getSpeedUpCost(odds, nil, 1000), 0, 0)
+	local rateConfig = table.clone(config)
+	rateConfig.economy = { speedUpDiamondsPerMinute = 10 }
+	check("speed-up cost with a set rate", NestMath.getSpeedUpCost(HatchOdds.build(rateConfig), 1060, 1000), 10, 0)
+	local badSpeedUp = table.clone(config)
+	badSpeedUp.economy = { speedUpDiamondsPerMinute = 0 }
+	if #HatchOdds.validate(badSpeedUp) < 1 then
+		table.insert(failures, "a speedUpDiamondsPerMinute of 0 was not rejected")
+	end
+
+	local speedParentA = makeGenome(odds, "fire", "common")
+	local speedParentB = makeGenome(odds, "fire", "common")
+	speedParentB.uuid = "speed-b"
+	local speedNest = NestMath.create(odds, speedParentA, speedParentB, 1, 1000, rollContext)
+	if speedNest and speedNest.pendingEgg then
+		local seenEgg = speedNest.pendingEgg
+		local sped = NestMath.speedUp(odds, speedNest, 1005, rollContext)
+		if not sped or sped.genome.uuid ~= seenEgg.uuid then
+			table.insert(failures, "the sped-up egg is not the one that was pending")
+		end
+		check("a sped-up Nest has one egg", #speedNest.eggs, 1, 0)
+		check("the next timer starts at the speed-up time", speedNest.nextLayAt or -1, 1035, 0)
+		if not speedNest.pendingEgg or speedNest.pendingEgg.uuid == seenEgg.uuid then
+			table.insert(failures, "the speed-up did not roll a new pending egg")
+		end
+		for _ = 1, 2 do
+			NestMath.speedUp(odds, speedNest, 1006, rollContext)
+		end
+		check("the Nest fills to the cap through speed-ups", #speedNest.eggs, 3, 0)
+		if speedNest.nextLayAt ~= nil or speedNest.pendingEgg ~= nil then
+			table.insert(failures, "a full Nest kept a timer or a pending egg after a speed-up")
+		end
+		if NestMath.speedUp(odds, speedNest, 1007, rollContext) ~= nil then
+			table.insert(failures, "a full Nest could be sped up")
+		end
+	else
+		table.insert(failures, "NestMath.create gave no pending egg for the speed-up test")
+	end
+
 	-- a fresh roll has no parents, keeps its mix and tier, and only rolls pieces of the elements it has
 	local fresh = GenomeRoll.rollFresh(odds, { fire = 0.5, water = 0.5, nature = 0 }, 4, "00000000-1111-2222-3333-444444444444", 0, "market", rng)
 	if not fresh then

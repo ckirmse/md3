@@ -166,6 +166,7 @@ function NestManager.getClientData(self: NestManager, player: Player, playerData
 			parentA = nest.parentA,
 			parentB = nest.parentB,
 			nextLayAt = nest.nextLayAt,
+			pendingEgg = nest.pendingEgg, -- the Egg Lens shows it; the egg was rolled when its timer started, so seeing it changes nothing
 			layTimeSec = NestMath.getLayTimeSec(odds, nest),
 			eggs = eggs,
 		})
@@ -428,6 +429,48 @@ function NestManager.buyNest(self: NestManager, player: Player): (boolean, strin
 	end
 	playerData:addNestGoldPurchase()
 	return true, "You bought a new Nest"
+end
+
+-- Pays Diamonds to finish a Nest's running timer now. eggId is the pending egg the player saw in the Egg Lens: if the Nest has moved on to
+-- another egg, nothing is charged, so a player only ever pays for the egg they looked at.
+function NestManager.speedUpNest(self: NestManager, player: Player, nestIndex: any, eggId: any): (boolean, string)
+	local odds = hatchOddsManager:getOdds()
+	local playerData = gameController:getPlayerData(player)
+	if not odds or not playerData then
+		return false, "Nests are not available"
+	end
+	if not isNestIndex(playerData, nestIndex) or type(eggId) ~= "string" then
+		return false, "That Nest does not exist"
+	end
+	local nest = getNest(playerData, nestIndex)
+	local pending = if nest then nest.pendingEgg else nil
+	if not nest or not pending or nest.nextLayAt == nil then
+		return false, "That Nest has no egg on the way"
+	end
+	if pending.uuid ~= eggId then
+		return false, "The egg changed, look at it again"
+	end
+
+	local now = workspace:GetServerTimeNow()
+	local cost = NestMath.getSpeedUpCost(odds, nest.nextLayAt, now)
+	if cost < 1 then
+		return false, "The egg is about to be laid"
+	end
+	if not CurrencyGranter.trySpendDiamonds(player, cost, "layTimerSpeedUp") then
+		return false, string.format("You need %d Diamonds", cost)
+	end
+
+	if not NestMath.speedUp(odds, nest, now, self:getRollContext()) then
+		CurrencyGranter.grantDiamonds(player, cost, "layTimerSpeedUpRefund")
+		return false, "Could not speed up the Nest, you were not charged"
+	end
+	return true, string.format("The egg is ready (%d Diamonds)", cost)
+end
+
+function NestManager.trySpeedUp(self: NestManager, player: Player, nestIndex: any, eggId: any)
+	local _, message = self:speedUpNest(player, nestIndex, eggId)
+	gameController:sendSystemMessageToPlayer(player, message)
+	self:pushNests(player)
 end
 
 function NestManager.tryBuy(self: NestManager, player: Player)

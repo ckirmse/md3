@@ -134,6 +134,31 @@ function ClientGenomeUi.clearGenerated(container: any, template: any)
 	end
 end
 
+local DISABLED_COLOR = Color3.fromRGB(110, 110, 110)
+
+-- A button the player can't use is greyed out and can't be pressed. Its normal look is read once and kept as attributes, so it comes back
+-- exactly when it can be used again.
+function ClientGenomeUi.setButtonEnabled(button: any?, isEnabled: boolean)
+	if not button then
+		return
+	end
+	if button:GetAttribute("EnabledColor") == nil then
+		button:SetAttribute("EnabledColor", button.BackgroundColor3)
+		button:SetAttribute("EnabledTransparency", button.BackgroundTransparency)
+	end
+	button.Interactable = isEnabled
+	button.BackgroundColor3 = if isEnabled then button:GetAttribute("EnabledColor") else DISABLED_COLOR
+	button.BackgroundTransparency = if isEnabled then button:GetAttribute("EnabledTransparency") else 0.3
+	local gradient = button:FindFirstChildOfClass("UIGradient")
+	if gradient then
+		gradient.Enabled = isEnabled
+	end
+	local label = button:FindFirstChild("Label")
+	if label then
+		label.TextTransparency = if isEnabled then 0 else 0.5
+	end
+end
+
 function ClientGenomeUi.cloneTemplate(template: any, container: any, name: string): any
 	local clone = template:Clone()
 	clone.Name = name

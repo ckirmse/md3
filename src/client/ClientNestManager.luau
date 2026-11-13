@@ -11,12 +11,16 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 -- the RemoteEvents children only exist in Studio, so they are untyped here
 local RemoteEvents: any = ReplicatedStorage:WaitForChild("RemoteEvents")
 
+local GenomeValue = require("@game/ReplicatedStorage/Shared/GenomeValue")
 local HatchOdds = require("@game/ReplicatedStorage/Shared/HatchOdds")
+local NestMath = require("@game/ReplicatedStorage/Shared/NestMath")
 local PairOdds = require("@game/ReplicatedStorage/Shared/PairOdds")
+local PlayerAttributeKeys = require("@game/ReplicatedStorage/Shared/PlayerAttributeKeys")
 
 local ClientGenomeUi = require("./ClientGenomeUi")
 local clientHatchOdds = require("./ClientHatchOdds")
 local clientNestWorldManager = require("./ClientNestWorldManager")
+local clientPlayerAttributesManager = require("./ClientPlayerAttributesManager")
 local ClientTicker = require("./ClientTicker")
 local overlayTracker = require("./OverlayTracker")
 local Types = require("./Types")
@@ -40,6 +44,7 @@ local setVisible = ClientGenomeUi.setVisible
 local setText = ClientGenomeUi.setText
 local clearGenerated = ClientGenomeUi.clearGenerated
 local cloneTemplate = ClientGenomeUi.cloneTemplate
+local setButtonEnabled = ClientGenomeUi.setButtonEnabled
 
 local WEATHER_LABELS: { [string]: string } = {
 	rain = "Rain",
@@ -52,7 +57,7 @@ type NestsState = {
 	weather: string?, -- the Hatch weather running now, which boosts one mutation of the eggs laid during it
 	nextNestPrice: number?, -- the Gold price of the next Nest the player can buy, nil when there is none
 	plotIndex: number?, -- the player's plot, which the Nest models in the world are matched to
-	nests: { any }, -- one per slot: { isEmpty = true } or { parentA, parentB, nextLayAt, layTimeSec, eggs }
+	nests: { any }, -- one per slot: { isEmpty = true } or { parentA, parentB, nextLayAt, pendingEgg, layTimeSec, eggs }
 }
 
 type Candidate = ClientGenomeUi.Candidate
@@ -66,6 +71,9 @@ type ClientNestManagerFields = {
 	nestTemplate: any?,
 	picker: any?,
 	reveal: any?,
+	lens: any?,
+	lensNestIndex: number?,
+	lensEggId: string?,
 	openButton: any?,
 	buyNestButton: any?,
 	isOverlayOpen: boolean,
@@ -121,6 +129,7 @@ function ClientNestManager.refreshTimers(self: ClientNestManager)
 			timer.Text = if nest.nextLayAt then ("Next egg in %s"):format(formatDuration(nest.nextLayAt - now)) else "Full: hatch an egg"
 		end
 	end
+	self:refreshLens()
 end
 
 function ClientNestManager.rebuildNests(self: ClientNestManager)
@@ -150,6 +159,15 @@ function ClientNestManager.rebuildNests(self: ClientNestManager)
 		if not nest.isEmpty and filled then
 			setText(filled:FindFirstChild("ParentA"), describeGenome(nest.parentA))
 			setText(filled:FindFirstChild("ParentB"), describeGenome(nest.parentB))
+
+			-- a running timer has an egg on the way: the button opens the Egg Lens on it
+			local speedUpButton = filled:FindFirstChild("SpeedUpButton")
+			setVisible(speedUpButton, nest.pendingEgg ~= nil and nest.nextLayAt ~= nil)
+			if speedUpButton then
+				speedUpButton.Activated:Connect(function()
+					self:showLens(index)
+				end)
+			end
 
 			local clearButton = filled:FindFirstChild("ClearButton")
 			if clearButton then
@@ -217,6 +235,7 @@ function ClientNestManager.setData(self: ClientNestManager, data: any)
 
 	self.state = data :: NestsState
 	self:refreshHud()
+	self:refreshLens()
 	if self.picker and self.picker.Visible then
 		self:refreshPickerOdds()
 	end
@@ -381,6 +400,99 @@ end
 
 -- ===== the reveal =====
 
+-- ===== the Egg Lens and the lay speed-up =====
+
+-- The Egg Lens shows the egg a Nest is about to lay (it was rolled when the timer started), in full and for free, and offers to finish the
+-- timer now for Diamonds. Paying sends the egg's id, so the server charges only if that is still the egg the player looked at.
+
+function ClientNestManager.closeLens(self: ClientNestManager)
+	setVisible(self.lens, false)
+	self.lensNestIndex = nil
+	self.lensEggId = nil
+end
+
+function ClientNestManager.showLens(self: ClientNestManager, nestIndex: number)
+	local frame, state = self.lens, self.state
+	local odds = clientHatchOdds:getOdds()
+	local nest = if state then state.nests[nestIndex] else nil
+	if not frame or not odds or not nest or nest.isEmpty or not nest.pendingEgg then
+		return
+	end
+
+	local genome = nest.pendingEgg
+	self.lensNestIndex = nestIndex
+	self.lensEggId = genome.uuid
+
+	local pieceList = frame:FindFirstChild("PieceList")
+	local pieceTemplate = if pieceList then pieceList:FindFirstChild("PieceTemplate") else nil
+	if pieceList and pieceTemplate then
+		clearGenerated(pieceList, pieceTemplate)
+		for order, part in HatchOdds.PARTS do
+			local row = cloneTemplate(pieceTemplate, pieceList, "Piece" .. order)
+			row.LayoutOrder = order
+			local name, rarity = formatPiece(genome.pieces[part])
+			local label = row:FindFirstChild("Label") or row
+			label.Text = ("%s: %s (%s)"):format(PART_LABELS[part] or part, name, rarity)
+			label.TextColor3 = RARITY_COLORS[rarity] or label.TextColor3
+		end
+	end
+
+	local band = GenomeValue.getBand(odds, genome)
+	local banner = frame:FindFirstChild("Banner")
+	if banner then
+		banner.Text = string.upper(band)
+		banner.TextColor3 = RARITY_COLORS[band] or banner.TextColor3
+	end
+	setText(frame:FindFirstChild("Subtitle"), (if genome.tier > nest.parentA.tier then "TIER JUMP! " else "") .. getTierName(genome))
+	setText(frame:FindFirstChild("Mutation"), if genome.mutation == "normal" then "No mutation" else "Mutation: " .. genome.mutation)
+	setText(frame:FindFirstChild("Size"), ("Size %.2f%s"):format(genome.size, if genome.isGiant then " (Giant!)" else ""))
+	setText(frame:FindFirstChild("Value"), ("Sell value: %d coins"):format(math.floor(GenomeValue.getValue(odds, genome))))
+	frame.Visible = true
+	self:refreshLens()
+end
+
+-- keeps the price and the pay button current while the Lens is open, and closes it when its egg has been laid or the Nest has changed
+function ClientNestManager.refreshLens(self: ClientNestManager)
+	local frame, state = self.lens, self.state
+	if not frame or not frame.Visible or not state then
+		return
+	end
+	local odds = clientHatchOdds:getOdds()
+	local nest = if self.lensNestIndex then state.nests[self.lensNestIndex] else nil
+	if not odds or not nest or nest.isEmpty or not nest.pendingEgg or nest.pendingEgg.uuid ~= self.lensEggId or not nest.nextLayAt then
+		self:closeLens()
+		return
+	end
+
+	local now = workspace:GetServerTimeNow()
+	local cost = NestMath.getSpeedUpCost(odds, nest.nextLayAt, now)
+	if cost < 1 then
+		self:closeLens()
+		return
+	end
+	local diamonds = clientPlayerAttributesManager:get(PlayerAttributeKeys.DIAMONDS) or 0
+	setText(frame:FindFirstChild("Info"), ("Ready in %s | you have %d Diamonds"):format(formatDuration(nest.nextLayAt - now), diamonds))
+	local payButton = frame:FindFirstChild("PayButton")
+	if payButton then
+		setText(payButton:FindFirstChild("Label") or payButton, ("Speed up for %d Diamonds"):format(cost))
+		setButtonEnabled(payButton, diamonds >= cost)
+	end
+end
+
+function ClientNestManager.confirmLens(self: ClientNestManager)
+	local nestIndex, eggId = self.lensNestIndex, self.lensEggId
+	if not nestIndex or not eggId then
+		return
+	end
+	local remote = RemoteEvents:FindFirstChild("TryNestSpeedUp")
+	if not remote then
+		warn("ClientNestManager: RemoteEvents.TryNestSpeedUp is missing, so Nests can't be sped up")
+		return
+	end
+	remote:FireServer(nestIndex, eggId)
+	self:closeLens()
+end
+
 function ClientNestManager.closeReveal(self: ClientNestManager)
 	self.revealToken += 1
 	self.revealed = nil
@@ -476,6 +588,7 @@ function ClientNestManager.openDialog(self: ClientNestManager)
 
 	self:closePicker()
 	self:closeReveal()
+	self:closeLens()
 	self:rebuildNests()
 	self:refreshHud()
 	gui.Enabled = true
@@ -509,6 +622,7 @@ function ClientNestManager.closeDialogGui(self: ClientNestManager)
 	end
 	self:closePicker()
 	self:closeReveal()
+	self:closeLens()
 	local disconnect = self.tickerDisconnect
 	if disconnect then
 		disconnect()
@@ -553,8 +667,10 @@ end
 -- In StarterGui, a ScreenGui named Nests with ResetOnSpawn off and Enabled off:
 --   Dialog, with CloseButton, an optional BuyNestButton (with a Label; shown while a Nest can be bought) and
 --     NestList (a list layout) holding the hidden NestTemplate: Title, EmptyLabel, PairButton, and FilledFrame with ParentA, ParentB,
---       Timer, ClearButton and EggList (a list layout) holding the hidden EggTemplate: Label, Traits, HatchButton and an optional Glow
+--       Timer, SpeedUpButton, ClearButton and EggList (a list layout) holding the hidden EggTemplate: Label, Traits, HatchButton and an optional Glow
 --     Picker (hidden): DragonList holding the hidden DragonTemplate (Label, optional SelectedMark), OddsList holding the hidden OddsTemplate (a rich text label), Hint, ConfirmButton, CancelButton
+--     Lens (hidden, optional) opened by a Nest's SpeedUpButton: Banner, Subtitle, PieceList (hidden PieceTemplate: Label), Mutation, Size, Value, Info,
+--       PayButton (with a Label), CloseButton
 --     Reveal (hidden): Banner, Subtitle, PieceList holding the hidden PieceTemplate (Label), Mutation, Traits, Size, Value, SellButton, KeepButton,
 --       CloseButton
 function ClientNestManager.setUpGui(self: ClientNestManager)
@@ -627,6 +743,22 @@ function ClientNestManager.setUpGui(self: ClientNestManager)
 	connect(picker, "CancelButton", function()
 		self:closePicker()
 	end)
+	-- the Egg Lens is optional: without it Nests work and can't be sped up
+	local lens: any = dialog:FindFirstChild("Lens")
+	if lens then
+		lens.Visible = false
+		local lensPieceTemplate = lens:FindFirstChild("PieceList") and lens.PieceList:FindFirstChild("PieceTemplate")
+		if lensPieceTemplate then
+			lensPieceTemplate.Visible = false
+		end
+		self.lens = lens
+		connect(lens, "PayButton", function()
+			self:confirmLens()
+		end)
+		connect(lens, "CloseButton", function()
+			self:closeLens()
+		end)
+	end
 	connect(reveal, "SellButton", function()
 		self:decide("sell")
 	end)
@@ -684,6 +816,9 @@ function ClientNestManager.new(): ClientNestManager
 	self.pickerNestIndex = nil
 	self.pickerCandidates = {}
 	self.pickerSelected = {}
+	self.lens = nil
+	self.lensNestIndex = nil
+	self.lensEggId = nil
 	self.revealToken = 0
 	self.revealed = nil
 	self.tickerDisconnect = nil

@@ -1917,6 +1917,10 @@ function GameController.tryRestyle(self: GameController, player: Player, itemId:
 	restyleManager:tryRestyle(player, itemId, part, payWith)
 end
 
+function GameController.tryNestSpeedUp(self: GameController, player: Player, nestIndex: any, eggId: any): ()
+	nestManager:trySpeedUp(player, nestIndex, eggId)
+end
+
 function GameController.tryNestBuy(self: GameController, player: Player): ()
 	nestManager:tryBuy(player)
 end
@@ -3950,6 +3954,7 @@ function GameController.listenToRemoteEvents(self: GameController): ()
 		TryNestClear = "tryNestClear",
 		TryNestHatch = "tryNestHatch",
 		TryNestDecide = "tryNestDecide",
+		TryNestSpeedUp = "tryNestSpeedUp",
 		TryRestyle = "tryRestyle",
 	} do
 		if RemoteEvents:FindFirstChild(remoteName) then

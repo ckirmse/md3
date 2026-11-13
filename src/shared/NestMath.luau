@@ -171,6 +171,36 @@ function NestMath.growTraits(odds: HatchOdds.Odds, nest: Nest, weather: HatchOdd
 	return gained
 end
 
+-- The Diamonds to finish the running lay timer now: the minutes left x the flat rate, rounded up, at least 1 while any time is left.
+-- 0 when there is no running timer or it has run out.
+function NestMath.getSpeedUpCost(odds: HatchOdds.Odds, nextLayAt: number?, now: number): number
+	if nextLayAt == nil or nextLayAt <= now then
+		return 0
+	end
+	local economy = odds.config.economy
+	local rate = if economy and economy.speedUpDiamondsPerMinute then economy.speedUpDiamondsPerMinute else HatchOdds.DEFAULT_SPEED_UP_DIAMONDS_PER_MINUTE
+	return math.max(1, math.ceil((nextLayAt - now) / 60 * rate))
+end
+
+-- Finishes the running timer now: the pending egg, rolled when the timer started, is laid, and the next timer starts (and rolls) unless the
+-- Nest is now full. Returns the egg, or nil when there is no running timer.
+function NestMath.speedUp(odds: HatchOdds.Odds, nest: Nest, now: number, context: RollContext): Egg?
+	local pending = nest.pendingEgg
+	if nest.isBroken or nest.nextLayAt == nil or pending == nil then
+		return nil
+	end
+
+	local egg: Egg = { genome = pending, laidAt = now }
+	table.insert(nest.eggs, egg)
+	nest.pendingEgg = nil
+	if #nest.eggs >= NestMath.getEggCap(odds) then
+		nest.nextLayAt = nil
+	else
+		startTimer(odds, nest, now, context)
+	end
+	return egg
+end
+
 -- Removes the egg at the index. A Nest that was full starts its next lay time now, since it was not laying while it waited.
 function NestMath.takeEgg(odds: HatchOdds.Odds, nest: Nest, index: number, now: number, context: RollContext): Egg?
 	local egg = table.remove(nest.eggs, index)

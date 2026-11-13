@@ -68,6 +68,7 @@ export type WeatherConfig = {
 
 export type EconomyConfig = {
 	restyleDiamondsPerToken: number?, -- Diamonds that pay for one Restyle Token (the token pack rate)
+	speedUpDiamondsPerMinute: number?, -- Diamonds per minute left on a Nest's lay timer, to finish the egg now
 }
 
 -- The assembled config: Control/HatchOdds (the genetics and values), Control/HatchPieces (pieces) and Control/HatchSystems (nests, weather,
@@ -128,6 +129,7 @@ local WEATHERS: { Weather } = { "rain", "heatwave", "bloomStorm", "thunderstorm"
 -- the values used while Control/HatchSystems leaves an optional field out (the spec's numbers)
 HatchOdds.DEFAULT_EGG_CAP = 3
 HatchOdds.DEFAULT_RESTYLE_DIAMONDS_PER_TOKEN = 5 -- placeholder; the spec sets no pack rate yet
+HatchOdds.DEFAULT_SPEED_UP_DIAMONDS_PER_MINUTE = 2 -- placeholder; the spec sets no speed-up rate yet
 HatchOdds.DEFAULT_WEATHER_TRAIT_CHANCE_PER_MINUTE = 0.02
 HatchOdds.DEFAULT_WEATHER_TRAIT_MATCH_MULT = 2
 HatchOdds.DEFAULT_WEATHER_TRAIT_MATCH_SHARE = 0.5
@@ -345,6 +347,10 @@ function HatchOdds.validate(config: any): { string }
 			local rate = economy.restyleDiamondsPerToken
 			if rate ~= nil and (type(rate) ~= "number" or rate < 1 or rate ~= math.floor(rate)) then
 				problem("HatchSystems: economy.restyleDiamondsPerToken must be a whole number of at least 1")
+			end
+			local speedUpRate = economy.speedUpDiamondsPerMinute
+			if speedUpRate ~= nil and (not isFiniteNonNegative(speedUpRate) or speedUpRate <= 0) then
+				problem("HatchSystems: economy.speedUpDiamondsPerMinute must be a number above 0")
 			end
 		end
 	end
