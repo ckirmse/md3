@@ -647,6 +647,26 @@ function HatchOddsSelfTest.run(liveConfig: any?): { string }
 		table.insert(failures, "NestMath.create gave no pending egg for the speed-up test")
 	end
 
+	-- a queued removal: the running egg is still laid, then no timer starts and no new egg is rolled
+	local removeParentB = makeGenome(odds, "fire", "common")
+	removeParentB.uuid = "remove-b"
+	local removeNest = NestMath.create(odds, speedParentA, removeParentB, 1, 1000, rollContext)
+	if removeNest and removeNest.pendingEgg then
+		local queuedEgg = removeNest.pendingEgg
+		removeNest.isRemoving = true
+		local laidEgg = NestMath.speedUp(odds, removeNest, 1005, rollContext)
+		if not laidEgg or laidEgg.genome.uuid ~= queuedEgg.uuid then
+			table.insert(failures, "a queued removal changed the egg that was laid")
+		end
+		if removeNest.nextLayAt ~= nil or removeNest.pendingEgg ~= nil then
+			table.insert(failures, "a Nest with a queued removal started another timer")
+		end
+		check("a queued removal keeps the laid egg", #removeNest.eggs, 1, 0)
+		check("a queued removal lays nothing more", #NestMath.advance(odds, removeNest, { now = 100000, rng = rng, makeUuid = rollContext.makeUuid }), 0, 0)
+	else
+		table.insert(failures, "NestMath.create gave no pending egg for the removal test")
+	end
+
 	-- a fresh roll has no parents, keeps its mix and tier, and only rolls pieces of the elements it has
 	local fresh = GenomeRoll.rollFresh(odds, { fire = 0.5, water = 0.5, nature = 0 }, 4, "00000000-1111-2222-3333-444444444444", 0, "market", rng)
 	if not fresh then

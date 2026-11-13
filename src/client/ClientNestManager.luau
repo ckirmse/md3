@@ -57,7 +57,7 @@ type NestsState = {
 	weather: string?, -- the Hatch weather running now, which boosts one mutation of the eggs laid during it
 	nextNestPrice: number?, -- the Gold price of the next Nest the player can buy, nil when there is none
 	plotIndex: number?, -- the player's plot, which the Nest models in the world are matched to
-	nests: { any }, -- one per slot: { isEmpty = true } or { parentA, parentB, nextLayAt, pendingEgg, layTimeSec, eggs }
+	nests: { any }, -- one per slot: { isEmpty = true } or { parentA, parentB, nextLayAt, isRemoving, pendingEgg, layTimeSec, eggs }
 }
 
 type Candidate = ClientGenomeUi.Candidate
@@ -126,7 +126,12 @@ function ClientNestManager.refreshTimers(self: ClientNestManager)
 		local card = nestList:FindFirstChild("Nest" .. index)
 		local timer = if card and not nest.isEmpty then card:FindFirstChild("Timer", true) else nil
 		if timer then
-			timer.Text = if nest.nextLayAt then ("Next egg in %s"):format(formatDuration(nest.nextLayAt - now)) else "Full: hatch an egg"
+			if nest.nextLayAt then
+				local format = if nest.isRemoving then "Last egg in %s, then the dragons return" else "Next egg in %s"
+				timer.Text = format:format(formatDuration(nest.nextLayAt - now))
+			else
+				timer.Text = "Full: hatch an egg"
+			end
 		end
 	end
 	self:refreshLens()
@@ -171,6 +176,8 @@ function ClientNestManager.rebuildNests(self: ClientNestManager)
 
 			local clearButton = filled:FindFirstChild("ClearButton")
 			if clearButton then
+				-- while a removal is queued the same button cancels it
+				setText(clearButton:FindFirstChild("Label") or clearButton, if nest.isRemoving then "Keep breeding" else "Remove")
 				clearButton.Activated:Connect(function()
 					RemoteEvents.TryNestClear:FireServer(index)
 				end)

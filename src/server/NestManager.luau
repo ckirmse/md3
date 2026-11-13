@@ -1,6 +1,6 @@
 --!strict
 
--- Personal Nests for Hatch Dragons. A Nest holds two same-tier genome dragons and lays an egg on a timer (NestMath), up to 3 waiting.
+-- Personal Nests for Hatch Dragons. Removing a Nest with an egg on the way is queued until that egg is laid (no re-rolling by re-pairing). A Nest holds two same-tier genome dragons and lays an egg on a timer (NestMath), up to 3 waiting.
 -- The Nests are saved in PlayerData as plain genome records, so a parent leaves the inventory while it sits in a Nest.
 -- Hatching reveals an egg's genome (rolled when it was laid); the player then sells it for Gold, which never creates a dragon,
 -- or keeps it, which creates a ShadowDragon carrying the genome. Eggs laid while offline are caught up when the player joins.
@@ -166,6 +166,7 @@ function NestManager.getClientData(self: NestManager, player: Player, playerData
 			parentA = nest.parentA,
 			parentB = nest.parentB,
 			nextLayAt = nest.nextLayAt,
+			isRemoving = nest.isRemoving == true,
 			pendingEgg = nest.pendingEgg, -- the Egg Lens shows it; the egg was rolled when its timer started, so seeing it changes nothing
 			layTimeSec = NestMath.getLayTimeSec(odds, nest),
 			eggs = eggs,
@@ -242,18 +243,33 @@ function NestManager.setNest(self: NestManager, player: Player, nestIndex: any, 
 	return true, "The Nest is ready"
 end
 
--- Gives the two parents back to the player and empties the Nest. A Nest with eggs waiting stays until they are hatched.
-function NestManager.clearNest(self: NestManager, player: Player, nestIndex: any): (boolean, string)
-	local playerData = gameController:getPlayerData(player)
-	if not playerData or not isNestIndex(playerData, nestIndex) then
-		return false, "That Nest does not exist"
+-- Whether the backpack can take another dragon; the inventory limit is not built yet, so there is always room.
+local function hasBackpackRoom(player: Player): boolean
+	return true
+end
+
+-- Empties a Nest: every waiting egg is kept as a dragon (sold for Gold when the backpack is full) and the parents go back to the backpack.
+-- Returns whether the Nest is gone and a short message; on a failure the Nest stays, with the removal cancelled.
+local function dissolveNest(self: NestManager, player: Player, playerData: any, nestIndex: number, nest: NestMath.Nest): (boolean, string)
+	local odds = hatchOddsManager:getOdds()
+	if not odds then
+		return false, "Nests are not available"
 	end
-	local nest = getNest(playerData, nestIndex)
-	if not nest then
-		return false, "That Nest is empty"
-	end
-	if #nest.eggs > 0 then
-		return false, "Hatch the waiting eggs first"
+
+	local keptCount, soldCount = 0, 0
+	while #nest.eggs > 0 do
+		local genome = nest.eggs[1].genome
+		if hasBackpackRoom(player) then
+			if not self:giveGenomeDragon(player, genome) then
+				nest.isRemoving = nil
+				return false, "Could not create a dragon, the Nest was kept"
+			end
+			keptCount += 1
+		else
+			CurrencyGranter.grantCoins(player, math.floor(GenomeValue.getValue(odds, genome)), "sellHatchling")
+			soldCount += 1
+		end
+		table.remove(nest.eggs, 1)
 	end
 
 	local dragonA = self:giveGenomeDragon(player, nest.parentA)
@@ -265,10 +281,42 @@ function NestManager.clearNest(self: NestManager, player: Player, nestIndex: any
 				itemManager:destroyItem(dragon)
 			end
 		end
+		nest.isRemoving = nil
 		return false, "Could not return the dragons"
 	end
 	playerData:getNests()[tostring(nestIndex)] = nil
-	return true, "The dragons are back in your backpack"
+
+	local message = "The dragons are back in your backpack"
+	if keptCount + soldCount > 0 then
+		message = string.format("%s, with %d new dragons", message, keptCount)
+		if soldCount > 0 then
+			message = string.format("%s (%d sold, the backpack was full)", message, soldCount)
+		end
+	end
+	return true, message
+end
+
+-- Remove on a Nest. With an egg on the way the removal is only queued, so the egg the player may have looked at is still the one they get:
+-- the Nest is emptied when that egg is laid. Pressing it again cancels the queued removal. A Nest with no egg on the way is emptied at once.
+function NestManager.clearNest(self: NestManager, player: Player, nestIndex: any): (boolean, string)
+	local playerData = gameController:getPlayerData(player)
+	if not playerData or not isNestIndex(playerData, nestIndex) then
+		return false, "That Nest does not exist"
+	end
+	local nest = getNest(playerData, nestIndex)
+	if not nest then
+		return false, "That Nest is empty"
+	end
+
+	if nest.isRemoving then
+		nest.isRemoving = nil
+		return true, "The Nest will keep breeding"
+	end
+	if nest.pendingEgg ~= nil and nest.nextLayAt ~= nil then
+		nest.isRemoving = true
+		return true, "The dragons will come back once the current egg is laid"
+	end
+	return dissolveNest(self, player, playerData, nestIndex, nest)
 end
 
 -- Everything the reveal screen shows about a waiting egg; nothing changes, since hatching rolls nothing.
@@ -379,11 +427,28 @@ function NestManager.tickPlayer(self: NestManager, player: Player, playerData: a
 		weather = weather,
 	}
 	local changedCount = 0
-	for _, nest in playerData:getNests() do
+	for key, nest in playerData:getNests() do
 		changedCount += #NestMath.advance(odds, nest, params)
 		changedCount += NestMath.growTraits(odds, nest, weather, elapsedSec or TICK_SEC, self.random)
+		if self:dissolveIfDone(player, playerData, key, nest) then
+			changedCount += 1
+		end
 	end
 	return changedCount
+end
+
+-- Empties a Nest whose queued removal has reached its egg (the timer is gone); returns whether it did.
+function NestManager.dissolveIfDone(self: NestManager, player: Player, playerData: any, key: string, nest: NestMath.Nest): boolean
+	if not nest.isRemoving or nest.nextLayAt ~= nil then
+		return false
+	end
+	local nestIndex = tonumber(key)
+	if not nestIndex then
+		return false
+	end
+	local _, message = dissolveNest(self, player, playerData, nestIndex, nest)
+	gameController:sendSystemMessageToPlayer(player, message)
+	return true
 end
 
 -- dev only: moves every timer back so the Nests lay as if that many seconds had passed
@@ -464,6 +529,7 @@ function NestManager.speedUpNest(self: NestManager, player: Player, nestIndex: a
 		CurrencyGranter.grantDiamonds(player, cost, "layTimerSpeedUpRefund")
 		return false, "Could not speed up the Nest, you were not charged"
 	end
+	self:dissolveIfDone(player, playerData, tostring(nestIndex), nest)
 	return true, string.format("The egg is ready (%d Diamonds)", cost)
 end
 

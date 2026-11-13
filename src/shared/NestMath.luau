@@ -31,6 +31,7 @@ export type Nest = {
 	nextLayAt: number?, -- nil while the Nest is full
 	speedBoost: number, -- the speed boosts multiplied together, 1 for none
 	isBroken: boolean?, -- the parents could not be rolled, so the Nest lays nothing more
+	isRemoving: boolean?, -- the player asked to empty it: the running egg is still laid, then no timer starts and the Nest is emptied
 }
 
 -- what rolling an egg needs
@@ -55,6 +56,11 @@ end
 -- Starts a lay timer at startAt: rolls the egg it will lay and sets the due time. A roll that fails (parents that can't breed)
 -- marks the Nest broken so it stops instead of retrying every tick.
 local function startTimer(odds: HatchOdds.Odds, nest: Nest, startAt: number, context: RollContext)
+	if nest.isRemoving then
+		nest.pendingEgg = nil
+		nest.nextLayAt = nil
+		return
+	end
 	local genome = GenomeRoll.rollGenome(odds, {
 		parentA = nest.parentA,
 		parentB = nest.parentB,
@@ -118,7 +124,7 @@ function NestMath.advance(odds: HatchOdds.Odds, nest: Nest, params: AdvanceParam
 	end
 
 	-- a Nest saved before eggs were rolled at timer start has a timer but no pending egg: roll it now and keep the due time
-	if nest.nextLayAt ~= nil and nest.pendingEgg == nil and not nest.isBroken then
+	if nest.nextLayAt ~= nil and nest.pendingEgg == nil and not nest.isBroken and not nest.isRemoving then
 		local dueAt = nest.nextLayAt
 		startTimer(odds, nest, params.now, params)
 		if not nest.isBroken then
