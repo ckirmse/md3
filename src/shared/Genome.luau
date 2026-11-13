@@ -6,8 +6,8 @@ local HatchOdds = require("./HatchOdds")
 
 local Genome = {}
 
--- how many generations of ancestors a dragon carries: parents, grandparents, great-grandparents
-Genome.LINEAGE_GENERATIONS = 3
+-- how many generations of ancestors a dragon carries: 1 is its parents only (as of 2026-november-13, per the designer)
+Genome.LINEAGE_GENERATIONS = 1
 
 export type Shares = { [HatchOdds.Element]: number } -- the element shares, adding up to 1
 
@@ -52,8 +52,19 @@ function Genome.makeCode(uuid: string): string
 	return clean:sub(1, 8):upper()
 end
 
+-- cuts snapshots saved when more generations were kept: levels is how many generations from here may stay
+local function trimAncestors(ancestry: { Ancestor }, levels: number)
+	for _, ancestor in ancestry do
+		if levels <= 1 then
+			ancestor.ancestry = {}
+		else
+			trimAncestors(ancestor.ancestry, levels - 1)
+		end
+	end
+end
+
 -- Genomes saved before lineage or restyles existed lack those fields: they count as founders (bred ones as bred) with no ancestry
--- to show, and as never restyled.
+-- to show, and as never restyled. Ancestors deeper than LINEAGE_GENERATIONS are cut.
 function Genome.fillLineage(genome: Genome)
 	local loose: any = genome
 	if loose.origin == nil then
@@ -68,6 +79,7 @@ function Genome.fillLineage(genome: Genome)
 	if loose.restyleCount == nil then
 		loose.restyleCount = 0
 	end
+	trimAncestors(genome.ancestry, Genome.LINEAGE_GENERATIONS)
 end
 
 -- the frozen copy of a parent for its baby's ancestry; levels is how many generations (this one included) the copy may hold

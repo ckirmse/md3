@@ -421,7 +421,7 @@ function HatchOddsSelfTest.run(liveConfig: any?): { string }
 		table.insert(failures, "NestMath.create accepted parents of different tiers")
 	end
 
-	-- lineage: a baby carries frozen snapshots of its parents, which carry theirs, 3 generations deep and no deeper
+	-- lineage: a baby carries frozen snapshots of its parents, which carry theirs only as far as Genome.LINEAGE_GENERATIONS (the parents alone)
 	local line: Genome.Genome = makeGenome(odds, "fire", "common")
 	for generation = 1, 4 do
 		local mate = makeGenome(odds, "fire", "common")
@@ -450,6 +450,15 @@ function HatchOddsSelfTest.run(liveConfig: any?): { string }
 	end
 	line.pieces.wings = wingsBefore
 	check("snapshot of one level has no ancestors", #frozen.ancestry, 0, 0)
+
+	-- a genome saved with deeper ancestry is cut to the kept generations
+	local deepGenome = makeGenome(odds, "fire", "common")
+	local grandparent: Genome.Ancestor = { uuid = "g", code = "G", tier = 1, pieces = deepGenome.pieces, mutation = "normal", origin = "bred", generation = 0, ancestry = {} }
+	local parentSnapshot: Genome.Ancestor = { uuid = "p", code = "P", tier = 1, pieces = deepGenome.pieces, mutation = "normal", origin = "bred", generation = 1, ancestry = { grandparent } }
+	deepGenome.ancestry = { parentSnapshot }
+	Genome.fillLineage(deepGenome)
+	check("saved deep ancestry is trimmed", #parentSnapshot.ancestry, 0, 0)
+	check("saved parents are kept", #deepGenome.ancestry, 1, 0)
 
 	-- weather traits: 2% per minute for a waiting egg, doubled for a 50%+ match, never twice, none without weather
 	if HatchWeather.fromGameWeather(Enums.Weather.RAIN) ~= "rain" or HatchWeather.fromGameWeather(Enums.Weather.HEAT) ~= "heatwave"

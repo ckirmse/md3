@@ -32,6 +32,7 @@ local DragonSellValue = require("@game/ReplicatedStorage/Shared/DragonSellValue"
 local DragonSpeed = require("@game/ReplicatedStorage/Shared/DragonSpeed")
 local Elements = require("@game/ReplicatedStorage/Shared/Elements")
 local enums = require("@game/ReplicatedStorage/Shared/Enums")
+local Genome = require("@game/ReplicatedStorage/Shared/Genome")
 local GenomeValue = require("@game/ReplicatedStorage/Shared/GenomeValue")
 local PivotToIndependentTween = require("@game/ReplicatedStorage/Shared/PivotToIndependentTween")
 local RarityMath = require("@game/ReplicatedStorage/Shared/RarityMath")
@@ -1927,6 +1928,8 @@ function ShadowDragon.getGenome(self: ShadowDragon): any?
 end
 
 function ShadowDragon.setGenome(self: ShadowDragon, genome: any)
+	-- a saved genome may carry more generations of ancestors than are kept now
+	Genome.fillLineage(genome)
 	self.genome = genome
 	self:getObj():SetAttribute(Attributes.DRAGON_GENOME, httpService:JSONEncode(genome))
 	self:recomputeSellValue()
